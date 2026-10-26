@@ -55,6 +55,7 @@ initTheme(document.getElementById("theme"));
 const state = { epochIdx: 0, focusSeed: null, focusMean: null, focusLayer: null, visible: null };
 let d = null;
 let shown = []; // indices into d.layers that are actually plotted
+let pinned = []; // ...and the ones stuck at the ceiling, drawn as one marker
 let update = () => {};
 
 /** Layers that never leave the I(X;T) ceiling, found from the data rather than
@@ -70,10 +71,19 @@ function pinnedLayers(data) {
     });
 }
 
+/** "L1,2" for a run with two pinned layers, "L1" for one. Built from the layer
+ * names rather than from indices, so it stays right whatever is pinned. */
+function pinnedLabel() {
+  if (!pinned.length) return "";
+  const names = pinned.map((li) => short(d.layers[li]));
+  return names[0] + names.slice(1).map((n) => `,${n.replace(/^L/, "")}`).join("");
+}
+
 load("data/infoplane.json").then((data) => {
   d = data;
-  const pinned = new Set(pinnedLayers(d));
-  shown = d.layers.map((_, li) => li).filter((li) => !pinned.has(li));
+  pinned = pinnedLayers(d);
+  const isPinned = new Set(pinned);
+  shown = d.layers.map((_, li) => li).filter((li) => !isPinned.has(li));
   if (shown.length > SERIES.length) shown = shown.slice(-SERIES.length);
   state.visible = shown.map(() => true);
   state.focusLayer = shown[shown.length - 1];
@@ -83,15 +93,28 @@ load("data/infoplane.json").then((data) => {
   // Written from the data, not hardcoded: the series count is a property of the
   // run (--widths, --no-measure-output), and a stale "7 layers x 50 seeds" here
   // outlived two architectures.
-  const omitted = [...pinned].map((li) => short(d.layers[li]));
+  const omitted = pinned.map((li) => short(d.layers[li]));
   document.getElementById("markcount").textContent =
     `${shown.length * d.nSeeds} marks: ${shown.length} series × ${d.nSeeds} seeds. ` +
     `Large labelled marks are the ensemble mean. ` +
     (omitted.length
-      ? `${omitted.join(" and ")} ${omitted.length > 1 ? "are" : "is"} pinned at the ` +
-        `H(X) = ${d.bounds.H_X}-bit ceiling and cannot move, so ${omitted.length > 1 ? "they are" : "it is"} ` +
-        `left to the table view below.`
+      ? `${omitted.join(" and ")} never move, so they share the single hollow marker at ` +
+        `the ceiling.`
       : "");
+  // Written from the data as well, so the widths and bin count it quotes cannot
+  // drift away from the run actually being plotted.
+  if (pinned.length) {
+    const widths = pinned.map((li) => d.meta.widths[li]);
+    document.getElementById("pinned-note").textContent =
+      `${d.meta.bins} bins across ` +
+      `${widths.join(" and ")} tanh units separate all ${d.meta.n_samples} input patterns, ` +
+      `so ${pinnedLabel()} are each an invertible function of the input. That forces ` +
+      `I(X;T) = H(X), and with it I(T;Y) = I(X;Y) = H(Y) — at every epoch, for any weights ` +
+      `at all, before a single gradient step. It is a property of the estimator rather than ` +
+      `of training, which is why they are one marker and not ${pinned.length * d.nSeeds} ` +
+      `stacked ones. The paper says the same of its own first hidden layer, which ` +
+      `“hardly moved in the plane during the optimization”.`;
+  }
 
   legend(document.getElementById("legend"), shown.map((li) => short(d.layers[li])), {
     classFor: (i) => SERIES[i].cls,
@@ -127,7 +150,10 @@ function build(width, scrub) {
   const host = document.getElementById("plot");
   const readout = document.getElementById("focus-readout");
   const height = Math.max(380, Math.min(560, Math.round(width * 0.62)));
-  const { plot, w, h } = frame(host, { width, height, margin: { left: 54, right: 24, top: 14 } });
+  // Deeper top margin than the other charts: the pinned marker sits exactly on
+  // the H(Y) line at the right edge, and its label goes above it where nothing
+  // else competes for the space.
+  const { plot, w, h } = frame(host, { width, height, margin: { left: 54, right: 24, top: 30 } });
 
   const x = scaleLinear([0, d.bounds.H_X], [0, w]);
   const y = scaleLinear([0, d.bounds.H_Y], [h, 0]).nice();
@@ -147,12 +173,13 @@ function build(width, scrub) {
     .attr("x2", w)
     .attr("y1", y(d.bounds.H_Y))
     .attr("y2", y(d.bounds.H_Y));
+  // Anchored left, not right: the top-right corner now belongs to the pinned
+  // marker, which is exactly where this bound and the H(X) one meet.
   plot
     .append("text")
     .attr("class", "bound-label")
-    .attr("x", w)
+    .attr("x", 4)
     .attr("y", y(d.bounds.H_Y) - 5)
-    .attr("text-anchor", "end")
     .text(`H(Y) = ${bits(d.bounds.H_Y)} bits`);
   // Along the bottom, not the top: up there it would sit on the H(Y) label.
   plot
@@ -162,6 +189,23 @@ function build(width, scrub) {
     .attr("y", h - 7)
     .attr("text-anchor", "end")
     .text(`H(X) = ${d.bounds.H_X} bits`);
+
+  // The pinned layers, as one hollow marker at the corner the two bounds meet.
+  // Hollow and neutral on purpose: it is not a fifth series -- a fifth
+  // categorical hue would not clear the palette gate, and this mark is a
+  // property of the estimator rather than a trajectory.
+  const pinX = x(d.bounds.H_X);
+  const pinY = y(d.bounds.H_Y);
+  if (pinned.length) {
+    plot.append("circle").attr("class", "pinned-mark").attr("cx", pinX).attr("cy", pinY).attr("r", 6);
+    plot
+      .append("text")
+      .attr("class", "point-label lg pinned-label")
+      .attr("x", pinX + 4)
+      .attr("y", pinY - 12)
+      .attr("text-anchor", "end")
+      .text(pinnedLabel());
+  }
 
   const pathLayer = plot.append("g");
   const traceLayer = plot.append("g");
@@ -322,6 +366,10 @@ function build(width, scrub) {
         ? [d.layerAgg(li).ixt[e], d.layerAgg(li).ity[e]]
         : [d.seedPts[s][li].ixt[e], d.seedPts[s][li].ity[e]];
     const chain = shown.filter((_, si) => state.visible[si]).map(at);
+    // The chain starts at the ceiling when the layers above the first plotted
+    // one are pinned there: the data processing chain does not begin at L3, and
+    // drawing it from the marker says so without restacking 100 marks.
+    if (pinned.length && state.visible[0]) chain.unshift([d.bounds.H_X, d.bounds.H_Y]);
     trace.attr("display", null).attr("d", path(chain));
 
     // ...and the paths through every epoch, which are the arcs the paper's figure

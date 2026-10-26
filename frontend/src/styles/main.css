@@ -224,6 +224,11 @@ button[aria-pressed="true"], .toggle[aria-pressed="true"] {
    always-visible naming of a series, and they are what discharges the relief
    rule for the two low-contrast light-mode hues. */
 .point-label.lg { font-size: 14px; fill: var(--text-primary); }
+/* The pinned layers: one hollow, neutral marker where the two bounds meet. Not
+   a series -- it carries no trajectory, and a fifth categorical hue would not
+   clear the palette gate. */
+.pinned-mark { fill: none; stroke: var(--muted); stroke-width: 2; }
+.point-label.pinned-label { fill: var(--muted); }
 
 /* Per-layer colour, applied by class so a theme change repaints without a
    re-render, and so the colour always follows the layer (never its rank). */
