@@ -6,6 +6,8 @@
  * a theme switch repaints without a re-render and a layer's colour can never
  * follow its rank.
  */
+
+import { symbol, symbolCircle, symbolDiamond, symbolSquare, symbolTriangle } from "d3-shape";
 import { axisBottom, axisLeft } from "d3-axis";
 import { format } from "d3-format";
 import { select } from "d3-selection";
@@ -19,6 +21,49 @@ export const lclass = (i) => `l${i + 1}`;
 
 /** Short label for a layer, e.g. "Layer 3" -> "L3". */
 export const short = (name) => name.replace(/^Layer\s*/, "L");
+
+/** The information-plane series style, shared by Figures 2 and 3.
+ *
+ * Categorical rather than the ordinal ramp the line charts use: in a scatter any
+ * two marks can land side by side, so neighbouring steps of one hue will not do.
+ * The hues are catalogue slots 1/4/5/6 -- the subset that clears
+ * validate_palette.js --pairs all in BOTH themes, found by enumerating all 70
+ * four-slot combinations. Its dark-mode CVD separation is 6.9, inside the band
+ * that is legal only with a secondary channel, which is what `sym` is for: every
+ * mark carries a shape as well as a colour, repeated in the legend key.
+ *
+ * Four slots is the whole budget. A fifth plotted series needs the enumeration
+ * re-run, not another hue appended.
+ */
+export const PLANE_SERIES = [
+  { cls: "c1", key: "dot-key", sym: symbolCircle },
+  { cls: "c4", key: "sq-key", sym: symbolSquare },
+  { cls: "c5", key: "tri-key", sym: symbolTriangle },
+  { cls: "c6", key: "dia-key", sym: symbolDiamond },
+];
+
+/** The SVG path for series `si`'s mark, at `size` square pixels. */
+export const planeMark = (si, size) => symbol().type(PLANE_SERIES[si].sym).size(size)();
+
+/** Layers that never leave the I(X;T) ceiling.
+ *
+ * Found from the data, never named: a layer whose binning separates every input
+ * pattern is an invertible function of the input, so it sits at (H(X), H(Y)) for
+ * any weights at all, and which layers those are depends on --widths and --bins.
+ * Hardcoding "L1 and L2" would drop the wrong ones the next time either moves.
+ */
+export function pinnedLayers(data) {
+  return data.layers
+    .map((_, li) => li)
+    .filter((li) => data.bounds.H_X - Math.min(...data.layerAgg(li).ixt) < 0.05);
+}
+
+/** "L1,2" for two pinned layers, "L1" for one, "" for none. */
+export function pinnedLabel(data, pinned) {
+  if (!pinned.length) return "";
+  const names = pinned.map((li) => short(data.layers[li]));
+  return names[0] + names.slice(1).map((n) => `,${n.replace(/^L/, "")}`).join("");
+}
 
 /**
  * Build a fresh SVG frame sized to `width`, clearing whatever was there.

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Figure 3 · Information plane</title>
-    <meta name="description" content="Fitting versus compression: mean information-plane trajectories and the layer ordering at each epoch." />
+    <meta name="description" content="The information plane at four training-set fractions, as the paper's Figure 3 compares 5%, 45% and 85% of the data." />
     <link rel="stylesheet" href="./src/styles/main.css" />
   </head>
   <body>
@@ -14,20 +14,20 @@
         <nav>
           <a href="./index.html">Overview</a>
           <a href="./fig2.html">Fig 2 · Seeds</a>
-          <a href="./fig3.html" aria-current="page">Fig 3 · Phases</a>
+          <a href="./fig3.html" aria-current="page">Fig 3 · Train size</a>
           <a href="./fig4.html">Fig 4 · Over time</a>
-          <a href="./fig5.html">Fig 5 · Train size</a>
         </nav>
         <button id="theme" type="button">Theme: system</button>
       </div>
     </header>
     <main class="wrap">
-      <h1>Figure 3 — fitting against compression</h1>
+      <h1>Figure 3 — the plane at four training-set sizes</h1>
       <p class="lede">
-        The ensemble-mean path each layer takes through the plane over all 9,000 epochs, with
-        the scrubbed epoch marked. The companion chart shows the same instant as bits per
-        layer, where the data processing inequality has to hold: a layer can never know more
-        about the input than the layer below it.
+        The paper compares 5%, 45% and 85% of the patterns; these are those three with
+        15% added, so the step from 5% to 45% is not a jump. Each panel is the
+        ensemble-mean path of every layer over the whole run, drawn exactly as Figure 2
+        draws a mean. Compression happens in all four — what changes is whether the
+        layers keep their label information while it does.
       </p>
 
       <div class="controls">
@@ -37,34 +37,44 @@
           <span class="readout" id="epoch-readout">epoch 0</span>
         </div>
         <div class="control"><button id="play" type="button" aria-pressed="false">Play</button></div>
-        <div class="control">
-          <button id="trail" type="button" aria-pressed="true">Show full paths</button>
-        </div>
+        <div class="control" id="sizes" role="group" aria-label="Training-set sizes"></div>
       </div>
 
-      <section class="card">
-        <div class="card-head">
-          <div>
-            <h2>Mean trajectory per layer</h2>
-            <p class="note">Open marks are the scrubbed epoch; the faint path is the whole run.</p>
-          </div>
-          <p class="note" id="provenance"></p>
-        </div>
-        <div class="plot" id="plane"></div>
+      <div class="panel-head">
         <div id="legend"></div>
-        <div id="plane-table"></div>
-      </section>
+        <p class="note" id="provenance"></p>
+      </div>
+
+      <div class="grid-2 tight" id="panels"></div>
 
       <section class="card">
         <div class="card-head">
           <div>
-            <h2>I(X;T) by depth at this epoch</h2>
-            <p class="note" id="dpi-note"></p>
+            <h2>Generalisation against training-set size</h2>
+            <p class="note">Final mean accuracy after 9,000 epochs, per panel.</p>
           </div>
         </div>
-        <div class="plot" id="dpi"></div>
-        <div id="dpi-table"></div>
+        <div id="acc-table"></div>
       </section>
+
+      <p class="note" id="pinned-note"></p>
+
+      <p class="note">
+        <strong>What the panels are for.</strong> The paper's claim here is not that
+        compression needs data — it happens in every panel — but that what compression
+        costs depends on how much data there is. With few samples the deep layers lose
+        label information as they compress, which is overfitting the sample rather than
+        the rule; with most of the data they compress and keep it. Each panel states its
+        own final accuracy, and the table below collects them with the generalisation gap.
+      </p>
+
+      <p class="note">
+        <strong>On the theoretical IB bound.</strong> The plan for this page called for
+        overlaying the information-bottleneck bound curve. Computing it means solving the
+        IB self-consistent equations for this joint distribution, which the Phase 1
+        pipeline does not do, so the curve is not drawn rather than drawn by eye. The
+        bounds that <em>are</em> established by the data — H(X) and H(Y) — are marked.
+      </p>
     </main>
     <script type="module" src="./src/scripts/fig3.js"></script>
   </body>

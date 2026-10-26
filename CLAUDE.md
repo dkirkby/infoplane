@@ -33,7 +33,7 @@ uv run pytest           # 38 unit tests, ~10 s
 uv run pytest tests/test_mi.py::test_mi_of_independent_variables_is_zero_for_a_product_distribution
 uv run infoplane verify # ~11 s end-to-end run asserting the paper's invariants
 uv run infoplane run --num-seeds 50 --num-workers 8 --out data/infoplane.json   # ~5 min
-uv run infoplane sweep --train-sizes 50,100,500,4000 --outdir data/trainsize    # Figure 5
+uv run infoplane sweep --train-sizes 205,614,1843,3482 --outdir data/trainsize  # Figure 3
 
 cd frontend && npm install && npm run dev     # the figure pages (needs the data above)
 cd frontend && npm run build                  # static site -> frontend/dist
@@ -63,7 +63,11 @@ at checkpoints) → `runner.py` (ensemble over seeds) → `export.py` (JSON cont
 
 ## Frontend (`frontend/`)
 
-Five static pages (`index`, `fig2`..`fig5`), one Vite entry each — not an SPA. Shared
+Four static pages (`index`, `fig2`, `fig3`, `fig4`), one Vite entry each — not an SPA.
+The paper's Figure 3 is the training-size comparison, which is what `fig3.html` now shows;
+the old "fitting against compression" page was retired when it was relabelled. There is no
+Figure 5 page yet — the paper's is a comparison of architectures, which Phase 1 has not
+been run for. Shared
 modules in `src/scripts/`: `chart.js` (frames, axes, legend, tooltip, table view),
 `data.js` (fetch + reshape the export into typed arrays), `scrubber.js`, `theme.js`.
 `public/data` is a symlink to the repo's `data/`, dereferenced into `dist` at build.
@@ -71,12 +75,14 @@ modules in `src/scripts/`: `chart.js` (frames, axes, legend, tooltip, table view
 Rules that are load-bearing, not taste — a change here needs the same validation:
 
 - **Layer colour is an ORDINAL ramp** (one blue hue, 7 steps, monotone lightness),
-  generated in OKLCH and validated per theme, on `fig3`/`fig4`/`fig5`. Never substitute a
+  generated in OKLCH and validated per theme, on `fig4`. Never substitute a
   rainbow palette: depth is ordered. Series that are *not* layers (train vs test) use
   `.c1`/`.c2`, categorical slots 1-2.
-- **`fig2` is the documented exception: it is categorical.** It is the one scatter of
-  layers, where any two marks have to be told apart rather than just neighbours, and it
-  plots only four series. The hues are catalogue slots **1/4/5/6** (`.c1 .c4 .c5 .c6`) --
+- **The information-plane scatters (`fig2`, `fig3`) are categorical, not ordinal.** They
+  are the pages where any two marks have to be told apart rather than just neighbours, and
+  they plot four series. `PLANE_SERIES`, `planeMark`, `pinnedLayers` and `pinnedLabel` in
+  `chart.js` are the single source for both — add a page that plots the plane and it uses
+  those, rather than growing a third variant. The hues are catalogue slots **1/4/5/6** (`.c1 .c4 .c5 .c6`) --
   the subset found by enumerating all 70 four-slot combinations against
   `validate_palette.js --pairs all` in both themes, and one of only two that pass. Its
   dark-mode CVD separation is 6.9, inside the band that is legal *only* with a secondary
@@ -211,10 +217,12 @@ roughly 12 / 10.5 / 3.5 / 1.6 / 1.0 bits for the 85% panel, we get 11.64 / 8.66 
 Neither optimiser, nor split, nor batching, nor running the figure's own 10-8-6-4-2
 architecture closes the second one. Do not start turning knobs at it.
 
-Figure 5 sweep, mean final test accuracy: 0.7682 (N=50), 0.8339 (N=100), 0.8900 (N=500),
-0.9783 (N=4000). Three are DPI-clean; N=500 has a single +0.16-bit inversion on the
-Layer 5 -> Output pair, where the estimator is structurally weakest (probabilities in
-[0,1] binned on a [-1,1] grid).
+Figure 3 sweep, at the paper's training fractions, mean final test accuracy: 0.8610
+(5%, N=205), 0.9000 (15%, N=614), 0.9463 (45%, N=1,843), 0.9716 (85%, N=3,482). The deep
+layers' final I(T;Y) is what separates them -- 0.45 at 5% against 0.96 at 85% -- which is
+the paper's point: compression happens in all four, but what it costs depends on the
+sample. Three panels are DPI-clean; 85% has one +0.004-bit L1 -> L2 inversion (two
+saturated layers within a bin of each other).
 
 `--dataset quadric` for contrast reaches test 0.9890 with compression 0.01, 0.24, 0.81,
 3.72, 5.23, 1.89 — more in the deep layers than `var_u`, being a deterministic rule the

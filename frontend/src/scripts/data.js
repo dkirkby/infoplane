@@ -73,7 +73,7 @@ export async function load(url) {
   return cache.get(url);
 }
 
-/** The Figure 5 manifest: one entry per training-set size. */
+/** The training-size manifest (Figure 3): one entry per training-set size. */
 export async function loadSweepIndex(url = "data/trainsize/index.json") {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);

@@ -20,8 +20,8 @@ uv run infoplane verify   # short end-to-end run checking the paper's invariants
 # the real thing: 50 seeds x 9000 epochs, ~5 min on 8 cores
 uv run infoplane run --num-seeds 50 --num-workers 8 --out data/infoplane.json
 
-# Figure 5: one ensemble per training-set size
-uv run infoplane sweep --train-sizes 50,100,500,4000 --outdir data/trainsize
+# Figure 3: one ensemble per training-set size (the paper's 5/45/85%, plus 15%)
+uv run infoplane sweep --train-sizes 205,614,1843,3482 --outdir data/trainsize
 ```
 
 `infoplane run --help` lists every knob. Useful non-defaults:
@@ -270,9 +270,8 @@ until `infoplane fetch` and `infoplane run` have produced the exports.
 | --- | --- |
 | `index.html` | Headline numbers, train/test accuracy against epoch, and the caveats below. |
 | `fig2.html` | The plane with one mark per (seed, layer) at a scrubbed epoch; hovering traces one seed through all five layers. |
-| `fig3.html` | Mean trajectories over the whole run with the scrubbed epoch marked, beside bits-by-depth where the DPI ordering is visible. |
+| `fig3.html` | The plane at four training-set fractions as small multiples, each panel lazily fetched. |
 | `fig4.html` | Both quantities against epoch on a log axis, with ±1σ bands on demand and a shared crosshair. |
-| `fig5.html` | Four training-set sizes as small multiples, each panel lazily fetched. |
 
 ### Design decisions worth keeping
 
@@ -301,8 +300,10 @@ until `infoplane fetch` and `infoplane run` have produced the exports.
 - **Figure 4 is two charts, not one chart with two y-axes.** I(X;T) spans 0–12 bits and
   I(T;Y) spans 0–1; aligning two such scales on one plot invents a relationship whose
   slope is an artifact of the alignment.
-- **Figure 5 is faceted, not overlaid**, for the same colour reason — four overlaid sizes
-  could not be coloured safely in a scatter.
+- **Figure 3 is faceted, not overlaid**, for the same colour reason — the four-hue budget
+  is spent on depth, so four overlaid training sizes on top of it could not be coloured
+  safely in a scatter. Its marks, hues and heavy mean paths come from `chart.js`, shared
+  with Figure 2, so a trajectory means the same thing on both pages.
 - **Figure 2 plots `runs`, not `aggregated`**, because Phase 1 measured that averaging
   destroys the fitting phase it exists to show.
 - **Direct labels are dropped, never nudged, when they collide.** A label pushed off its
@@ -313,7 +314,7 @@ until `infoplane fetch` and `infoplane run` have produced the exports.
 
 ### Not built
 
-The plan asked Figure 5 to overlay **theoretical IB bound curves**. Computing one means
+The plan asked Figure 3 to overlay **theoretical IB bound curves**. Computing one means
 solving the information-bottleneck self-consistent equations for this joint distribution,
 which the Phase 1 pipeline does not do — so the page draws the limits the data does
 establish (I(X;T) ≤ H(X), I(T;Y) ≤ H(Y)) and says the bound is absent, rather than drawing
@@ -409,8 +410,9 @@ for that. Never compare runs made with different `--bins`.
 30 bins, the authors' head split, ~5 min on 8 cores / 34 CPU-min): train accuracy 0.9984,
 test 0.9665, **0 DPI violations in 64,250 measurements**. Train accuracy crosses 0.95 at
 epoch 832 and 0.99 at epoch 3342. Ensemble-mean `I(X;T)` compression from peak to epoch
-9000, by series: 0.00, 0.02, 0.05, 1.25, 5.09, 2.21 bits. Figure 5 sweep, mean final test
-accuracy: 0.7682 (N=50), 0.8339 (N=100), 0.8900 (N=500), 0.9783 (N=4000).
+9000, by series: 0.00, 0.02, 0.05, 1.25, 5.09, 2.21 bits. Figure 3 sweep, mean final test
+accuracy at the paper's fractions: 0.8610 (5%, N=205), 0.9000 (15%, N=614), 0.9463
+(45%, N=1,843), 0.9716 (85%, N=3,482).
 
 Test accuracy is **not** comparable to a random-split replication: the authors' head slice
 holds out the top fifth of the pattern ordering, which is 84% positive.
@@ -441,9 +443,11 @@ rather than a nuisance.
 
 On the authors' architecture it is near-silent. **0 violations in 64,250 measurements** on
 the full dataset, under both input encodings, and 0 at three of the four training-set sizes
-in the Figure 5 sweep. The single exception is worth stating precisely, because it arrived
-with the readout series: at `--train-size 500`, one seed inverts by +0.16 bits at epoch
-2193, on the **Layer 5 → Output** pair. That pair is the one place where the estimator's
+in the Figure 3 sweep. The exceptions are worth stating precisely. At `--train-size 3482`
+one seed inverts by +0.0035 bits at epoch 9000 on the **Layer 1 → Layer 2** pair, which is
+two saturated layers sitting inside one bin of each other. The larger one arrived with the
+readout series: at `--train-size 500` (the earlier sweep), one seed inverted by +0.16 bits
+at epoch 2193, on the **Layer 5 → Output** pair. That pair is the one place where the estimator's
 assumption is structurally weakest — the readout's probabilities live in `[0, 1]` while the
 bin grid spans `[-1, 1]`, so binning the output is not remotely a coarsening of binning a
 3-unit tanh layer. One inversion in 64,250 is an artifact; a *rate* of them on that pair
@@ -456,6 +460,7 @@ The runs it fired on in bulk were all made with the discarded seven-layer readin
 | --- | --- | --- |
 | 5 hidden layers (the authors'), binary or spin | 0 / 64,250 | 0.000 bits |
 | 5 hidden layers, `--train-size 500` | 1 / 64,250 | +0.160 bits (L5 → Output) |
+| 5 hidden layers, `--train-size 3482` | 1 / 64,250 | +0.004 bits (L1 → L2) |
 | 7 hidden layers, spin, full dataset | 4 / 77,100 | +0.068 bits |
 | 7 hidden layers, spin, `--train-size 500` | 43 / 77,100 | **+0.412 bits** |
 | 7 hidden layers, binary, full dataset | 126 / 77,100 | +0.381 bits |
@@ -521,7 +526,7 @@ writes one such file per training size plus an `index.json`. Prefer additive cha
 6. **CPU by default, parallel across seeds.** `--device mps` works, but these networks are
    far too small to benefit — the win is 8 independent seeds on 8 cores, with one torch
    thread each. MPS plus `multiprocessing` is also a poor combination.
-7. **Figure 5's training sizes are separate files** with an identical schema, rather than a
+7. **The training sizes are separate files** with an identical schema, rather than a
    new axis inside one document, so the frontend can lazy-load only the sizes on screen.
 8. **MNIST is wired up but subsampled** (`--dataset mnist --n-samples 4096`): `I(X;T)` is
    bounded by `log2(n_samples)`, so the full 60k set is both slow and measured against a

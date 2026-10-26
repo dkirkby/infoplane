@@ -22,17 +22,21 @@
  *   at (H(X), H(Y)) from initialisation - and two immovable stacks of 50 marks at
  *   the corner crowd out the layers the figure is about. They stay in the table.
  */
-import { line, symbol, symbolCircle, symbolDiamond, symbolSquare, symbolTriangle } from "d3-shape";
+import { line } from "d3-shape";
 import { scaleLinear } from "d3-scale";
 import { load, nearest, provenance } from "./data.js";
 import { initTheme } from "./theme.js";
 import { scrubber } from "./scrubber.js";
 import {
+  PLANE_SERIES,
   bits,
   frame,
   gridX,
   gridY,
   legend,
+  pinnedLabel,
+  pinnedLayers,
+  planeMark,
   responsive,
   selectiveLabels,
   short,
@@ -41,14 +45,6 @@ import {
   yAxis,
 } from "./chart.js";
 
-// Categorical slots, in catalogue order, with a shape each. Never cycled: a fifth
-// plotted series would need the palette re-validated, not a repeat of slot 1.
-const SERIES = [
-  { cls: "c1", key: "dot-key", sym: symbolCircle },
-  { cls: "c4", key: "sq-key", sym: symbolSquare },
-  { cls: "c5", key: "tri-key", sym: symbolTriangle },
-  { cls: "c6", key: "dia-key", sym: symbolDiamond },
-];
 
 initTheme(document.getElementById("theme"));
 
@@ -58,33 +54,14 @@ let shown = []; // indices into d.layers that are actually plotted
 let pinned = []; // ...and the ones stuck at the ceiling, drawn as one marker
 let update = () => {};
 
-/** Layers that never leave the I(X;T) ceiling, found from the data rather than
- * named: the architecture has changed twice in this project's life and a
- * hardcoded "drop L1 and L2" would quietly drop the wrong ones next time. */
-function pinnedLayers(data) {
-  return data.layers
-    .map((_, li) => li)
-    .filter((li) => {
-      const t = data.layerAgg(li).ixt;
-      const lo = Math.min(...t);
-      return data.bounds.H_X - lo < 0.05; // never falls more than 0.05 bits below H(X)
-    });
-}
 
-/** "L1,2" for a run with two pinned layers, "L1" for one. Built from the layer
- * names rather than from indices, so it stays right whatever is pinned. */
-function pinnedLabel() {
-  if (!pinned.length) return "";
-  const names = pinned.map((li) => short(d.layers[li]));
-  return names[0] + names.slice(1).map((n) => `,${n.replace(/^L/, "")}`).join("");
-}
 
 load("data/infoplane.json").then((data) => {
   d = data;
   pinned = pinnedLayers(d);
   const isPinned = new Set(pinned);
   shown = d.layers.map((_, li) => li).filter((li) => !isPinned.has(li));
-  if (shown.length > SERIES.length) shown = shown.slice(-SERIES.length);
+  if (shown.length > PLANE_SERIES.length) shown = shown.slice(-PLANE_SERIES.length);
   state.visible = shown.map(() => true);
   state.focusLayer = shown[shown.length - 1];
 
@@ -108,7 +85,7 @@ load("data/infoplane.json").then((data) => {
     document.getElementById("pinned-note").textContent =
       `${d.meta.bins} bins across ` +
       `${widths.join(" and ")} tanh units separate all ${d.meta.n_samples} input patterns, ` +
-      `so ${pinnedLabel()} are each an invertible function of the input. That forces ` +
+      `so ${pinnedLabel(d, pinned)} are each an invertible function of the input. That forces ` +
       `I(X;T) = H(X), and with it I(T;Y) = I(X;Y) = H(Y) — at every epoch, for any weights ` +
       `at all, before a single gradient step. It is a property of the estimator rather than ` +
       `of training, which is why they are one marker and not ${pinned.length * d.nSeeds} ` +
@@ -117,8 +94,8 @@ load("data/infoplane.json").then((data) => {
   }
 
   legend(document.getElementById("legend"), shown.map((li) => short(d.layers[li])), {
-    classFor: (i) => SERIES[i].cls,
-    keyClassFor: (i) => SERIES[i].key,
+    classFor: (i) => PLANE_SERIES[i].cls,
+    keyClassFor: (i) => PLANE_SERIES[i].key,
     onEmphasis: (i) => {
       state.emphasis = i;
       update();
@@ -204,7 +181,7 @@ function build(width, scrub) {
       .attr("x", pinX + 4)
       .attr("y", pinY - 12)
       .attr("text-anchor", "end")
-      .text(pinnedLabel());
+      .text(pinnedLabel(d, pinned));
   }
 
   const pathLayer = plot.append("g");
@@ -219,21 +196,19 @@ function build(width, scrub) {
   for (let s = 0; s < d.nSeeds; s++)
     for (let si = 0; si < shown.length; si++) keys.push({ s, si, li: shown[si] });
 
-  const markPath = (si, size) => symbol().type(SERIES[si].sym).size(size)();
-
   const dots = dotLayer
     .selectAll("path")
     .data(keys, (k) => `${k.s}-${k.li}`)
     .join("path")
-    .attr("class", (k) => `dot ${SERIES[k.si].cls}`)
-    .attr("d", (k) => markPath(k.si, 44));
+    .attr("class", (k) => `dot ${PLANE_SERIES[k.si].cls}`)
+    .attr("d", (k) => planeMark(k.si, 44));
 
   const meanDots = meanLayer
     .selectAll("path")
     .data(shown.map((_, si) => si))
     .join("path")
-    .attr("class", (si) => `dot ${SERIES[si].cls}`)
-    .attr("d", (si) => markPath(si, 120));
+    .attr("class", (si) => `dot ${PLANE_SERIES[si].cls}`)
+    .attr("d", (si) => planeMark(si, 120));
 
   // Direct labels on the ensemble means only - selective by design. A value
   // beside every mark would be unreadable; the table carries the rest. They are
@@ -255,7 +230,7 @@ function build(width, scrub) {
     pathLayer.append("path").attr("class", "epoch-path-halo").attr("display", "none")
   );
   const epochPaths = shown.map((_, si) =>
-    pathLayer.append("path").attr("class", `epoch-path ${SERIES[si].cls}`).attr("display", "none")
+    pathLayer.append("path").attr("class", `epoch-path ${PLANE_SERIES[si].cls}`).attr("display", "none")
   );
   const hidePaths = () => {
     epochHalos.forEach((n) => n.attr("display", "none"));
@@ -391,7 +366,7 @@ function build(width, scrub) {
       const dAttr = path(d.epochs.map((_, i) => [src.ixt[i], src.ity[i]]));
       const heavy = mi != null ? " mean" : "";
       epochHalos[si].attr("display", null).attr("class", `epoch-path-halo${heavy}`).attr("d", dAttr);
-      node.attr("display", null).attr("class", `epoch-path ${SERIES[si].cls}${heavy}`).attr("d", dAttr);
+      node.attr("display", null).attr("class", `epoch-path ${PLANE_SERIES[si].cls}${heavy}`).attr("d", dAttr);
     });
   }
 
@@ -436,7 +411,7 @@ function build(width, scrub) {
     tableView(document.getElementById("table"), {
       summary: `Table view — ensemble at epoch ${d.epochs[e].toLocaleString("en-US")} (mean ± sd over ${d.nSeeds} seeds, all layers)`,
       columns: ["Layer", "I(X;T) mean", "I(X;T) sd", "I(T;Y) mean", "I(T;Y) sd"],
-      swatchFor: (si) => SERIES[si].cls,
+      swatchFor: (si) => PLANE_SERIES[si].cls,
       rows: d.layers.map((name, li) => {
         const a = d.layerAgg(li);
         const si = shown.indexOf(li);
