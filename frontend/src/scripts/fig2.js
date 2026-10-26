@@ -7,19 +7,31 @@
  * destroyed the subject: the arc was over in two epochs and cancelled to +0.49
  * bits. That is no longer so - it survives averaging at +1.28 - but the scatter
  * is still the faithful figure.)
+ *
+ * Two things here depart from the rest of the site, both because this is the one
+ * SCATTER of layers rather than a set of lines:
+ *
+ * - Series are identified CATEGORICALLY (colour + shape), not by the ordinal blue
+ *   ramp the other figures use. In a scatter the reader has to tell any two marks
+ *   apart, not just neighbours, and adjacent steps of one hue cannot do that when
+ *   the marks interleave. The four hues are catalogue slots 1/4/5/6, the subset
+ *   that clears the all-pairs gate in both themes; the shapes are the secondary
+ *   channel its dark-mode 6.9 CVD separation obliges. See main.css.
+ * - Layers pinned at the H(X) ceiling are left out of the plot. They cannot move -
+ *   a layer whose binning separates all 4096 inputs is invertible in X, so it sits
+ *   at (H(X), H(Y)) from initialisation - and two immovable stacks of 50 marks at
+ *   the corner crowd out the layers the figure is about. They stay in the table.
  */
-import { line } from "d3-shape";
+import { line, symbol, symbolCircle, symbolDiamond, symbolSquare, symbolTriangle } from "d3-shape";
 import { scaleLinear } from "d3-scale";
 import { load, nearest, provenance } from "./data.js";
 import { initTheme } from "./theme.js";
 import { scrubber } from "./scrubber.js";
 import {
-  Tooltip,
   bits,
   frame,
   gridX,
   gridY,
-  lclass,
   legend,
   responsive,
   selectiveLabels,
@@ -29,30 +41,61 @@ import {
   yAxis,
 } from "./chart.js";
 
-const tip = new Tooltip();
+// Categorical slots, in catalogue order, with a shape each. Never cycled: a fifth
+// plotted series would need the palette re-validated, not a repeat of slot 1.
+const SERIES = [
+  { cls: "c1", key: "dot-key", sym: symbolCircle },
+  { cls: "c4", key: "sq-key", sym: symbolSquare },
+  { cls: "c5", key: "tri-key", sym: symbolTriangle },
+  { cls: "c6", key: "dia-key", sym: symbolDiamond },
+];
 
 initTheme(document.getElementById("theme"));
 
-const state = { epochIdx: 0, focusSeed: null, visible: null };
+const state = { epochIdx: 0, focusSeed: null, focusMean: null, focusLayer: null, visible: null };
 let d = null;
+let shown = []; // indices into d.layers that are actually plotted
 let update = () => {};
+
+/** Layers that never leave the I(X;T) ceiling, found from the data rather than
+ * named: the architecture has changed twice in this project's life and a
+ * hardcoded "drop L1 and L2" would quietly drop the wrong ones next time. */
+function pinnedLayers(data) {
+  return data.layers
+    .map((_, li) => li)
+    .filter((li) => {
+      const t = data.layerAgg(li).ixt;
+      const lo = Math.min(...t);
+      return data.bounds.H_X - lo < 0.05; // never falls more than 0.05 bits below H(X)
+    });
+}
 
 load("data/infoplane.json").then((data) => {
   d = data;
-  state.visible = d.layers.map(() => true);
+  const pinned = new Set(pinnedLayers(d));
+  shown = d.layers.map((_, li) => li).filter((li) => !pinned.has(li));
+  if (shown.length > SERIES.length) shown = shown.slice(-SERIES.length);
+  state.visible = shown.map(() => true);
+  state.focusLayer = shown[shown.length - 1];
+
   document.getElementById("provenance").textContent = provenance(d);
   document.getElementById("binsnote").textContent = String(d.meta.bins);
-  // Written from the data, not hardcoded: the series count is a property of the run
-  // (--widths, --no-measure-output), and a stale "7 layers x 50 seeds" here outlived
-  // two architectures.
-  const nHidden = d.meta.widths.length;
-  const readout = d.layers.length > nHidden ? " + the readout" : "";
+  // Written from the data, not hardcoded: the series count is a property of the
+  // run (--widths, --no-measure-output), and a stale "7 layers x 50 seeds" here
+  // outlived two architectures.
+  const omitted = [...pinned].map((li) => short(d.layers[li]));
   document.getElementById("markcount").textContent =
-    `${d.layers.length * d.nSeeds} marks: ${nHidden} hidden layers${readout} ` +
-    `\u00d7 ${d.nSeeds} seeds. Large labelled marks are the ensemble mean per layer.`;
+    `${shown.length * d.nSeeds} marks: ${shown.length} series × ${d.nSeeds} seeds. ` +
+    `Large labelled marks are the ensemble mean. ` +
+    (omitted.length
+      ? `${omitted.join(" and ")} ${omitted.length > 1 ? "are" : "is"} pinned at the ` +
+        `H(X) = ${d.bounds.H_X}-bit ceiling and cannot move, so ${omitted.length > 1 ? "they are" : "it is"} ` +
+        `left to the table view below.`
+      : "");
 
-  legend(document.getElementById("legend"), d.layers.map(short), {
-    mark: "dot",
+  legend(document.getElementById("legend"), shown.map((li) => short(d.layers[li])), {
+    classFor: (i) => SERIES[i].cls,
+    keyClassFor: (i) => SERIES[i].key,
     onEmphasis: (i) => {
       state.emphasis = i;
       update();
@@ -82,8 +125,9 @@ load("data/infoplane.json").then((data) => {
 
 function build(width, scrub) {
   const host = document.getElementById("plot");
+  const readout = document.getElementById("focus-readout");
   const height = Math.max(380, Math.min(560, Math.round(width * 0.62)));
-  const { svg, plot, w, h } = frame(host, { width, height, margin: { left: 54, right: 24, top: 14 } });
+  const { plot, w, h } = frame(host, { width, height, margin: { left: 54, right: 24, top: 14 } });
 
   const x = scaleLinear([0, d.bounds.H_X], [0, w]);
   const y = scaleLinear([0, d.bounds.H_Y], [h, 0]).nice();
@@ -95,7 +139,7 @@ function build(width, scrub) {
 
   // The ceilings, as solid hairlines: I(T;Y) cannot exceed H(Y), and I(X;T)
   // cannot exceed H(X). Drawing them stops the reader wondering how far there is
-  // to go, and makes "Layer 1 is pinned at the ceiling" legible.
+  // to go, and shows where the omitted pinned layers sit.
   plot
     .append("line")
     .attr("class", "bound")
@@ -119,48 +163,70 @@ function build(width, scrub) {
     .attr("text-anchor", "end")
     .text(`H(X) = ${d.bounds.H_X} bits`);
 
+  const pathLayer = plot.append("g");
   const traceLayer = plot.append("g");
   const dotLayer = plot.append("g");
   const meanLayer = plot.append("g");
 
-  // One circle per (seed, layer), created once and moved on every update: the
-  // scrub path does no DOM churn.
+  // One mark per (seed, series), created once and moved on every update: the
+  // scrub path does no DOM churn. Paths rather than circles, because the shape
+  // carries identity alongside the colour.
   const keys = [];
   for (let s = 0; s < d.nSeeds; s++)
-    for (let li = 0; li < d.layers.length; li++) keys.push({ s, li });
+    for (let si = 0; si < shown.length; si++) keys.push({ s, si, li: shown[si] });
+
+  const markPath = (si, size) => symbol().type(SERIES[si].sym).size(size)();
 
   const dots = dotLayer
-    .selectAll("circle")
+    .selectAll("path")
     .data(keys, (k) => `${k.s}-${k.li}`)
-    .join("circle")
-    .attr("class", (k) => `dot ${lclass(k.li)}`)
-    .attr("r", 4);
+    .join("path")
+    .attr("class", (k) => `dot ${SERIES[k.si].cls}`)
+    .attr("d", (k) => markPath(k.si, 44));
 
   const meanDots = meanLayer
-    .selectAll("circle")
-    .data(d.layers.map((_, li) => li))
-    .join("circle")
-    .attr("class", (li) => `dot ${lclass(li)}`)
-    .attr("r", 6.5);
+    .selectAll("path")
+    .data(shown.map((_, si) => si))
+    .join("path")
+    .attr("class", (si) => `dot ${SERIES[si].cls}`)
+    .attr("d", (si) => markPath(si, 120));
 
   // Direct labels on the ensemble means only - selective by design. A value
-  // beside every mark would be unreadable; the tooltip and table carry the rest.
+  // beside every mark would be unreadable; the table carries the rest. They are
+  // also what discharges the relief rule for the two low-contrast light-mode
+  // hues: identity never rests on colour alone here.
   const meanLabels = meanLayer
     .selectAll("text")
-    .data(d.layers.map((_, li) => li))
+    .data(shown.map((_, si) => si))
     .join("text")
-    .attr("class", "point-label")
-    .text((li) => short(d.layers[li]));
+    .attr("class", "point-label lg")
+    .text((si) => short(d.layers[shown[si]]));
 
   const trace = traceLayer.append("path").attr("class", "trace").attr("display", "none");
+  // One path per plotted series, created once: hovering a seed lights exactly one
+  // of them, hovering an ensemble mean lights them all. Every halo is appended
+  // before any coloured path, so where two paths cross, neither is broken by the
+  // other's halo.
+  const epochHalos = shown.map(() =>
+    pathLayer.append("path").attr("class", "epoch-path-halo").attr("display", "none")
+  );
+  const epochPaths = shown.map((_, si) =>
+    pathLayer.append("path").attr("class", `epoch-path ${SERIES[si].cls}`).attr("display", "none")
+  );
+  const hidePaths = () => {
+    epochHalos.forEach((n) => n.attr("display", "none"));
+    epochPaths.forEach((n) => n.attr("display", "none"));
+  };
+
   const path = line()
     .x((p) => x(p[0]))
     .y((p) => y(p[1]));
 
   const marks = []; // pixel positions for nearest-point hover
+  const meanMarks = []; // the same, for the ensemble-mean markers
 
   // Hit layer covers the plot so the pointer only has to be *closest* to a mark,
-  // never dead-centre on a 8px dot.
+  // never dead-centre on it.
   const hit = plot
     .append("rect")
     .attr("width", w)
@@ -170,9 +236,14 @@ function build(width, scrub) {
 
   hit.on("pointermove", (event) => {
     const [px, py] = pointer(event, hit.node());
-    const m = nearest(marks, px, py, 30);
-    if (!m) return clearFocus();
-    focusSeed(m.s, event.clientX, event.clientY);
+    // Means are tested first, and with a tight radius: they sit inside the cloud
+    // they summarise, so some seed dot is nearly always closer, but the big
+    // labelled mark is what the pointer is aiming at when it is over one.
+    const m = nearest(meanMarks, px, py, 14);
+    if (m) return focusMeanOn(m.si);
+    const k = nearest(marks, px, py, 30);
+    if (!k) return clearFocus();
+    focusOn(k.s, k.li);
   });
   hit.on("pointerleave", clearFocus);
 
@@ -185,92 +256,151 @@ function build(width, scrub) {
     else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       const dir = e.key === "ArrowUp" ? -1 : 1;
       const cur = state.focusSeed == null ? -1 : state.focusSeed;
-      focusSeedKeyboard((cur + dir + d.nSeeds) % d.nSeeds);
+      focusOn((cur + dir + d.nSeeds) % d.nSeeds, state.focusLayer);
       e.preventDefault();
     } else if (e.key === "Escape") clearFocus();
   });
 
-  function focusSeed(s, clientX, clientY) {
+  // What is on screen is said once, statically, above the chart. Only the
+  // screen-reader line names the thing currently under the pointer, because it
+  // is the one readout that costs no layout.
+  const announce = (text) => {
+    readout.textContent = text;
+  };
+
+  /** Highlight one (seed, layer). */
+  function focusOn(s, li) {
     state.focusSeed = s;
+    state.focusMean = null;
+    state.focusLayer = li;
     paintFocus();
-    const rows = d.layers.map((name, li) => ({
-      layer: li,
-      name: short(name),
-      value: `${bits(d.seedPts[s][li].ixt[state.epochIdx])} , ${bits(d.seedPts[s][li].ity[state.epochIdx])}`,
-    }));
-    tip.show(clientX, clientY, `Seed ${d.seeds[s]} — I(X;T) , I(T;Y)`, rows);
+    announce(
+      `Seed ${d.seeds[s]}, ${short(d.layers[li])}, at epoch ` +
+        `${d.epochs[state.epochIdx].toLocaleString("en-US")}.`
+    );
   }
 
-  function focusSeedKeyboard(s) {
-    const box = host.getBoundingClientRect();
-    state.focusSeed = s;
+  /** Highlight one layer's ensemble mean, `si` indexing the plotted series. */
+  function focusMeanOn(si) {
+    state.focusSeed = null;
+    state.focusMean = si;
+    state.focusLayer = shown[si];
     paintFocus();
-    const m = marks.find((k) => k.s === s && k.li === d.layers.length - 1);
-    focusSeed(s, box.left + (m ? m.px + 54 : box.width / 2), box.top + (m ? m.py + 14 : box.height / 2));
+    announce(
+      `Ensemble mean of ${short(d.layers[shown[si]])} over ${d.nSeeds} seeds, at epoch ` +
+        `${d.epochs[state.epochIdx].toLocaleString("en-US")}.`
+    );
   }
 
   function clearFocus() {
     state.focusSeed = null;
+    state.focusMean = null;
     paintFocus();
-    tip.hide();
+    announce("");
   }
 
   function paintFocus() {
     const s = state.focusSeed;
-    dots.classed("dim", (k) => s != null && k.s !== s);
-    if (s == null) return trace.attr("display", "none");
-    // The trajectory through this seed's layers at this epoch: the data
-    // processing chain, which must march leftward as depth increases.
-    const pts = d.layers
-      .map((_, li) => [d.seedPts[s][li].ixt[state.epochIdx], d.seedPts[s][li].ity[state.epochIdx]])
-      .filter((_, li) => state.visible[li]);
-    trace.attr("display", null).attr("d", path(pts));
+    const mi = state.focusMean;
+    // Focusing a mean dims every seed, since no single network is being shown.
+    // Nothing else dims: hovering any mean puts the whole ensemble on screen, so
+    // the other layers' means are the subject too, not context.
+    dots.classed("dim", (k) => mi != null || (s != null && k.s !== s));
+    meanDots.classed("dim", false);
+    meanLabels.classed("dim", false);
+    if (s == null && mi == null) {
+      trace.attr("display", "none");
+      hidePaths();
+      return;
+    }
+    const e = state.epochIdx;
+    // The chain across layers at this epoch -- one seed's, or the ensemble's.
+    // Either way it is the data processing chain, which must march leftward as
+    // depth increases.
+    const at = (li) =>
+      mi != null
+        ? [d.layerAgg(li).ixt[e], d.layerAgg(li).ity[e]]
+        : [d.seedPts[s][li].ixt[e], d.seedPts[s][li].ity[e]];
+    const chain = shown.filter((_, si) => state.visible[si]).map(at);
+    trace.attr("display", null).attr("d", path(chain));
+
+    // ...and the paths through every epoch, which are the arcs the paper's figure
+    // is about: right during fitting, then left as it compresses. Hovering a seed
+    // draws that one layer's own path; hovering a mean draws the mean path of
+    // every layer, which is the comparison that mark is for.
+    const lit = new Set(
+      mi != null
+        ? shown.map((_, si) => si).filter((si) => state.visible[si])
+        : [shown.indexOf(state.focusLayer)].filter((si) => si >= 0 && state.visible[si])
+    );
+    epochPaths.forEach((node, si) => {
+      if (!lit.has(si)) {
+        node.attr("display", "none");
+        epochHalos[si].attr("display", "none");
+        return;
+      }
+      const src = mi != null ? d.layerAgg(shown[si]) : d.seedPts[s][shown[si]];
+      const dAttr = path(d.epochs.map((_, i) => [src.ixt[i], src.ity[i]]));
+      const heavy = mi != null ? " mean" : "";
+      epochHalos[si].attr("display", null).attr("class", `epoch-path-halo${heavy}`).attr("d", dAttr);
+      node.attr("display", null).attr("class", `epoch-path ${SERIES[si].cls}${heavy}`).attr("d", dAttr);
+    });
   }
 
   return function render() {
     const e = state.epochIdx;
     marks.length = 0;
     dots
-      .attr("cx", (k) => {
-        const px = x(d.seedPts[k.s][k.li].ixt[e]);
-        k._px = px;
-        return px;
+      .attr("transform", (k) => {
+        k._px = x(d.seedPts[k.s][k.li].ixt[e]);
+        k._py = y(d.seedPts[k.s][k.li].ity[e]);
+        return `translate(${k._px},${k._py})`;
       })
-      .attr("cy", (k) => {
-        const py = y(d.seedPts[k.s][k.li].ity[e]);
-        k._py = py;
-        return py;
-      })
-      .attr("display", (k) => (state.visible[k.li] ? null : "none"))
+      .attr("display", (k) => (state.visible[k.si] ? null : "none"))
       .attr("opacity", (k) =>
-        state.emphasis == null || state.emphasis === k.li ? 0.75 : 0.12
+        state.emphasis == null || state.emphasis === k.si ? 0.75 : 0.12
       );
-    for (const k of keys) if (state.visible[k.li]) marks.push({ s: k.s, li: k.li, px: k._px, py: k._py });
+    for (const k of keys) if (state.visible[k.si]) marks.push({ s: k.s, li: k.li, px: k._px, py: k._py });
 
+    meanMarks.length = 0;
     meanDots
-      .attr("cx", (li) => x(d.layerAgg(li).ixt[e]))
-      .attr("cy", (li) => y(d.layerAgg(li).ity[e]))
-      .attr("display", (li) => (state.visible[li] ? null : "none"));
-    // Layers 1-3 sit on top of one another at the ceiling for most of training,
-    // so only label the ones that have room.
+      .attr("transform", (si) => {
+        const a = d.layerAgg(shown[si]);
+        const px = x(a.ixt[e]);
+        const py = y(a.ity[e]);
+        if (state.visible[si]) meanMarks.push({ si, px, py });
+        return `translate(${px},${py})`;
+      })
+      .attr("display", (si) => (state.visible[si] ? null : "none"));
+    // Means can still collide near the ceiling, so only label the ones with room.
     const keep = selectiveLabels(
-      d.layers.map((_, li) => (state.visible[li] ? y(d.layerAgg(li).ity[e]) : NaN))
+      shown.map((li, si) => (state.visible[si] ? y(d.layerAgg(li).ity[e]) : NaN))
     );
     meanLabels
-      .attr("x", (li) => x(d.layerAgg(li).ixt[e]) + 10)
-      .attr("y", (li) => y(d.layerAgg(li).ity[e]) + 4)
-      .attr("display", (li) => (state.visible[li] && keep.has(li) ? null : "none"));
+      .attr("x", (si) => x(d.layerAgg(shown[si]).ixt[e]) + 10)
+      .attr("y", (si) => y(d.layerAgg(shown[si]).ity[e]) + 4)
+      .attr("display", (si) => (state.visible[si] && keep.has(si) ? null : "none"));
 
     paintFocus();
 
+    // The table keeps EVERY layer, including the pinned ones left out of the
+    // plot: this is the path that has to show the whole measurement.
     tableView(document.getElementById("table"), {
-      summary: `Table view — ensemble at epoch ${d.epochs[e].toLocaleString("en-US")} (mean ± sd over ${d.nSeeds} seeds)`,
+      summary: `Table view — ensemble at epoch ${d.epochs[e].toLocaleString("en-US")} (mean ± sd over ${d.nSeeds} seeds, all layers)`,
       columns: ["Layer", "I(X;T) mean", "I(X;T) sd", "I(T;Y) mean", "I(T;Y) sd"],
+      swatchFor: (si) => SERIES[si].cls,
       rows: d.layers.map((name, li) => {
         const a = d.layerAgg(li);
+        const si = shown.indexOf(li);
         return {
-          layer: li,
-          cells: [name, bits(a.ixt[e]), bits(a.ixtSd[e]), bits(a.ity[e]), bits(a.itySd[e])],
+          layer: si >= 0 ? si : null,
+          cells: [
+            si >= 0 ? name : `${name} (pinned, not plotted)`,
+            bits(a.ixt[e]),
+            bits(a.ixtSd[e]),
+            bits(a.ity[e]),
+            bits(a.itySd[e]),
+          ],
         };
       }),
     });

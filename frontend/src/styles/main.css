@@ -28,6 +28,17 @@
      Validated as a pair in both modes: worst CVD dE 24.7 light / 26.8 dark. */
   --cat-1: #2a78d6;
   --cat-2: #eb6834;
+  /* Slots 4-6, used ONLY by Figure 2, where the four plotted series are
+     identified categorically rather than by depth. Slots 1,4,5,6 are the subset
+     of the catalogue that clears the all-pairs gate (scatter) in both modes:
+     worst CVD dE 13.0 light / 6.9 dark, normal-vision 19.6 / 19.3. The dark 6.9
+     sits in the 6-8 band, which is legal only with a secondary channel, so every
+     Figure 2 mark also carries a per-series SHAPE. Light-mode yellow (2.11:1)
+     and magenta (2.62:1) fall under 3:1, which obliges the relief rule: the
+     direct labels on the ensemble means and the table view both ship. */
+  --cat-4: #eda100;
+  --cat-5: #e87ba4;
+  --cat-6: #008300;
   --layer-1: #86b6ef;
   --layer-2: #619fe9;
   --layer-3: #3987e5;
@@ -56,6 +67,9 @@
     --accent: #d95926;
     --cat-1: #3987e5;
     --cat-2: #d95926;
+    --cat-4: #c98500;
+    --cat-5: #d55181;
+    --cat-6: #008300;
     --layer-1: #cde2fb;
     --layer-2: #a6c9f5;
     --layer-3: #7db1ee;
@@ -78,6 +92,9 @@
   --accent: #d95926;
   --cat-1: #3987e5;
   --cat-2: #d95926;
+  --cat-4: #c98500;
+  --cat-5: #d55181;
+  --cat-6: #008300;
   --layer-1: #cde2fb;
   --layer-2: #a6c9f5;
   --layer-3: #7db1ee;
@@ -187,9 +204,26 @@ button[aria-pressed="true"], .toggle[aria-pressed="true"] {
 .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .band { stroke: none; fill-opacity: 0.1; }
 .dim { opacity: 0.16; }
-.trace { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+/* The layer chain at one epoch. Neutral and dashed, not the accent: it is not a
+   series, and in Figure 2 the accent orange would sit next to the categorical
+   yellow and read as a fifth layer. */
+.trace { fill: none; stroke: var(--text-secondary); stroke-width: 1.5; stroke-dasharray: 4 3; stroke-linejoin: round; opacity: 0.8; }
+/* The hovered point's own path through every epoch. Thinner than .trace and in
+   the series colour, so the two overlaid paths read as different things: where
+   this layer has been, against how the layers sit at this one epoch. */
+.epoch-path { fill: none; stroke: var(--c); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; opacity: 0.95; }
+.epoch-path-halo { fill: none; stroke: var(--surface-1); stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
+/* Ensemble-mean paths are heavier than a single seed's: four of them are on
+   screen at once, over a dimmed cloud, and they are the summary rather than one
+   sample of it. */
+.epoch-path.mean { stroke-width: 3; opacity: 1; }
+.epoch-path-halo.mean { stroke-width: 6; }
 .crosshair { stroke: var(--text-secondary); stroke-width: 1; shape-rendering: crispEdges; }
 .point-label { fill: var(--text-secondary); font-size: 10.5px; font-weight: 600; }
+/* Figure 2's direct labels carry more weight than elsewhere: they are the only
+   always-visible naming of a series, and they are what discharges the relief
+   rule for the two low-contrast light-mode hues. */
+.point-label.lg { font-size: 14px; fill: var(--text-primary); }
 
 /* Per-layer colour, applied by class so a theme change repaints without a
    re-render, and so the colour always follows the layer (never its rank). */
@@ -197,6 +231,7 @@ button[aria-pressed="true"], .toggle[aria-pressed="true"] {
 .l4 { --c: var(--layer-4); } .l5 { --c: var(--layer-5); } .l6 { --c: var(--layer-6); }
 .l7 { --c: var(--layer-7); }
 .c1 { --c: var(--cat-1); } .c2 { --c: var(--cat-2); }
+.c4 { --c: var(--cat-4); } .c5 { --c: var(--cat-5); } .c6 { --c: var(--cat-6); }
 .dot, .band { fill: var(--c); }
 .series-line { stroke: var(--c); }
 
@@ -212,6 +247,19 @@ button[aria-pressed="true"], .toggle[aria-pressed="true"] {
 .legend button[aria-pressed="true"] { color: var(--text-primary); font-weight: 600; border-color: var(--border); }
 .legend .key { width: 16px; height: 3px; border-radius: 2px; background: var(--c); flex: none; }
 .legend .key.dot-key { width: 9px; height: 9px; border-radius: 50%; }
+/* Shape repeats the series identity so colour is never the only channel -- the
+   same four shapes the Figure 2 marks are drawn with. */
+.legend .key.sq-key { width: 9px; height: 9px; border-radius: 1px; }
+.legend .key.tri-key { width: 11px; height: 10px; border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.legend .key.dia-key { width: 11px; height: 11px; border-radius: 0; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+
+/* Announced to assistive tech, never laid out: the visible hover copy is static,
+   because text that reflows under the pointer moves the chart while it is being
+   read. The keyboard path still has to say which seed it is on. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
 
 /* ---- tooltip: values lead, labels follow; series keyed by a line, not a box ---- */
 .tip {

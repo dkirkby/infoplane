@@ -280,10 +280,24 @@ until `infoplane fetch` and `infoplane run` have produced the exports.
   quantity — the DPI orders I(X;T) by it — so the reader should see the order in the
   colour. One blue hue, 7 steps, monotone in lightness, generated in OKLCH and validated
   in both themes (monotone L, every adjacent gap ≥ 0.06, surface-side end ≥ 2:1 contrast).
-  A categorical palette would also have been *unsafe* here: these are scatter plots, where
-  any two marks can be neighbours, and only three categorical slots clear the colourblind
-  separation floor under that condition. Dark mode is a separately validated set of steps,
-  not an inversion.
+  Dark mode is a separately validated set of steps, not an inversion. This holds for
+  Figures 3, 4 and 5.
+- **Figure 2 is the exception, and it is categorical.** It is the one scatter of layers,
+  where any two marks can be neighbours rather than just adjacent steps, and after the
+  pinned layers are dropped it carries only four series. The naive four categorical hues
+  fail: in a scatter every pair is in play, and the catalogue's first four put yellow next
+  to orange. Enumerating all 70 four-slot subsets against `validate_palette.js --pairs all`
+  in both themes leaves exactly two that pass; Figure 2 uses slots **1/4/5/6** (blue,
+  yellow, magenta, green), worst-pair CVD ΔE 13.0 light / 6.9 dark, normal-vision
+  19.6 / 19.3. The dark 6.9 sits in the band that is legal *only* with a secondary channel,
+  so each series also has its own **mark shape**, repeated in the legend key; and the two
+  light-mode hues below 3:1 on the surface oblige the relief rule, which the direct labels
+  on the ensemble means and the table view discharge.
+- **Figure 2 omits the layers pinned at the ceiling**, choosing them from the data — any
+  series whose `I(X;T)` never falls 0.05 bits below `H(X)` — rather than by name. They
+  cannot move, two stacks of 50 immovable marks crowd the layers that do, and the table
+  view still lists them. Naming L1 and L2 instead would have silently dropped the wrong
+  series the next time the architecture changed, which in this project has happened twice.
 - **Figure 4 is two charts, not one chart with two y-axes.** I(X;T) spans 0–12 bits and
   I(T;Y) spans 0–1; aligning two such scales on one plot invents a relationship whose
   slope is an artifact of the alignment.

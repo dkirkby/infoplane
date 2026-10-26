@@ -105,7 +105,11 @@ export function yAxis(plot, y, { h, label, ticks = 5, tickFormat }) {
  * that layer, clicking toggles it, so keyboard users get the same affordance as
  * the pointer.
  */
-export function legend(container, names, { onEmphasis, onToggle, mark = "line" } = {}) {
+export function legend(
+  container,
+  names,
+  { onEmphasis, onToggle, mark = "line", classFor = lclass, keyClassFor = null } = {}
+) {
   container.textContent = "";
   const ul = document.createElement("ul");
   ul.className = "legend";
@@ -114,10 +118,12 @@ export function legend(container, names, { onEmphasis, onToggle, mark = "line" }
     const li = document.createElement("li");
     const b = document.createElement("button");
     b.type = "button";
-    b.className = lclass(i);
+    b.className = classFor(i);
     b.setAttribute("aria-pressed", "true");
     const key = document.createElement("span");
-    key.className = mark === "dot" ? "key dot-key" : "key";
+    // keyClassFor lets a chart repeat its mark SHAPE in the legend, which is what
+    // makes a categorical palette legible without relying on colour alone.
+    key.className = keyClassFor ? `key ${keyClassFor(i)}` : mark === "dot" ? "key dot-key" : "key";
     b.append(key, document.createTextNode(name));
     if (onEmphasis) {
       b.addEventListener("pointerenter", () => onEmphasis(i));
@@ -193,10 +199,18 @@ export class Tooltip {
  * The table-view twin. Every chart ships one, so no value is reachable only by
  * hovering and the page still works in forced-colors or print.
  */
-export function tableView(container, { summary = "Table view", columns, rows }) {
+export function tableView(
+  container,
+  { summary = "Table view", columns, rows, swatchFor = lclass }
+) {
+  // The table is rebuilt on every render (scrub, toggle, focus), so carry the
+  // disclosure state across: a reader who opened it should not have it snap shut
+  // the moment the epoch moves.
+  const wasOpen = container.querySelector("details")?.open ?? false;
   container.textContent = "";
   const d = document.createElement("details");
   d.className = "tableview";
+  d.open = wasOpen;
   const s = document.createElement("summary");
   s.textContent = summary;
   const scroll = document.createElement("div");
@@ -219,7 +233,7 @@ export function tableView(container, { summary = "Table view", columns, rows }) 
       const td = document.createElement("td");
       if (i === 0 && r.layer != null) {
         const sw = document.createElement("span");
-        sw.className = `swatch ${lclass(r.layer)}`;
+        sw.className = `swatch ${swatchFor(r.layer)}`;
         td.append(sw);
       }
       td.append(document.createTextNode(cell));

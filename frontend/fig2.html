@@ -24,11 +24,9 @@
     <main class="wrap">
       <h1>Figure 2 — the information plane, seed by seed</h1>
       <p class="lede">
-        Every mark is one layer of one network at one epoch — the five hidden layers plus
-        the readout, which the paper counts as the highest layer: how many bits it keeps
+        Every mark is one layer of one network at one epoch: how many bits it keeps
         about the input, against how many it keeps about the label. Scrub the epoch to watch
-        the layers move right (fitting) and then left (compression). Hover any mark to trace
-        that seed through every layer.
+        the layers move right (fitting) and then left (compression).
       </p>
 
       <div class="controls">
@@ -50,11 +48,30 @@
           </div>
           <p class="note" id="provenance"></p>
         </div>
+        <!-- Static, by design. A line that rewrote itself under the pointer
+             reflowed the page and shifted the chart mid-read; what a hover does
+             is fixed, so the description can be too. The live region below is
+             announced but never laid out. -->
+        <p class="note">
+          Hover a small mark to draw that layer's whole path through training for that
+          seed; hover a large labelled mark for the ensemble mean's path. Either way the
+          dashed line links the layers at the epoch on the slider.
+        </p>
+        <p class="sr-only" id="focus-readout" role="status" aria-live="polite"></p>
         <div class="plot" id="plot"></div>
         <div id="legend"></div>
         <div id="table"></div>
       </section>
 
+      <p class="note">
+        <strong>Why four series and not six.</strong> The first layers are wide enough that
+        30 bins separate all 4096 input patterns, which makes them invertible functions of
+        the input: their I(X;T) is H(X) and their I(T;Y) is H(Y), from initialisation, for
+        any weights at all. They are properties of the estimator rather than of training,
+        and two immovable stacks of 50 marks in the corner crowd the layers that do move,
+        so they are left to the table view. The paper says the same of its own first hidden
+        layer, which &ldquo;hardly moved in the plane during the optimization&rdquo;.
+      </p>
       <p class="note">
         <strong>Why individual seeds.</strong> The paper's own Figure 2 is a scatter of 50
         networks, and the spread is part of what it shows: every seed takes a visibly

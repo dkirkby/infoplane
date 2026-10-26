@@ -71,10 +71,20 @@ modules in `src/scripts/`: `chart.js` (frames, axes, legend, tooltip, table view
 Rules that are load-bearing, not taste — a change here needs the same validation:
 
 - **Layer colour is an ORDINAL ramp** (one blue hue, 7 steps, monotone lightness),
-  generated in OKLCH and validated per theme. Never substitute a categorical or rainbow
-  palette: depth is ordered, and in a scatter only three categorical slots clear the
-  colourblind floor. Series that are *not* layers (train vs test) use `.c1`/`.c2`,
-  categorical slots 1-2.
+  generated in OKLCH and validated per theme, on `fig3`/`fig4`/`fig5`. Never substitute a
+  rainbow palette: depth is ordered. Series that are *not* layers (train vs test) use
+  `.c1`/`.c2`, categorical slots 1-2.
+- **`fig2` is the documented exception: it is categorical.** It is the one scatter of
+  layers, where any two marks have to be told apart rather than just neighbours, and it
+  plots only four series. The hues are catalogue slots **1/4/5/6** (`.c1 .c4 .c5 .c6`) --
+  the subset found by enumerating all 70 four-slot combinations against
+  `validate_palette.js --pairs all` in both themes, and one of only two that pass. Its
+  dark-mode CVD separation is 6.9, inside the band that is legal *only* with a secondary
+  channel, so every mark also carries a **shape** (circle / square / triangle / diamond,
+  repeated in the legend key). Light-mode yellow and magenta fall below 3:1 on the
+  surface, which obliges the relief rule, discharged by the direct labels on the ensemble
+  means and the table view. Changing any of this means re-running the enumeration, not
+  picking a nicer hue.
 - Marks take a `l1`..`l7` class and read `--c` from CSS, so a theme switch repaints
   without a re-render and a layer's colour never follows its rank. A default run has five
   hidden layers plus the measured readout, so it uses `l1`..`l6` and leaves `l7` for a
@@ -83,6 +93,9 @@ Rules that are load-bearing, not taste — a change here needs the same validati
   not — run the dataviz skill's `validate_palette.js --ordinal` in both modes.
 - **Never put I(X;T) and I(T;Y) on one pair of axes** (0-12 bits vs 0-1).
 - Figure 2 reads `runs`, not `aggregated` — see the expected-results note below.
+- **Figure 2 drops the pinned layers from its plot** (not from its table), and finds them
+  from the data — any series whose `I(X;T)` never falls 0.05 bits below `H(X)` — rather
+  than naming L1/L2, because the architecture has already changed twice here.
 - Every chart keeps its table view, legend, and keyboard path.
 
 ## Don't try to synthesise the paper's labels
