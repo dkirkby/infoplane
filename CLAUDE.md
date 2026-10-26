@@ -8,9 +8,9 @@ Replicate and interactively visualize Figures 2–5 of *Opening the Black Box of
 Networks via Information* (Shwartz-Ziv & Tishby, 2017). Part of UCI's AI4SCI Deep Learning
 course (`../ntk`, `../polyfit` are sibling course projects).
 
-`PLAN.md` is the design spec. **Phase 1 (the Python pipeline) is implemented; Phase 2 (the
-Vite + D3 frontend) is not started** — there is no `frontend/` yet. `README.md` documents
-the export schema that joins them, and the deliberate deviations from `PLAN.md`; keep both
+`PLAN.md` is the design spec. **Both phases are implemented**: the `infoplane` Python
+package (Phase 1) and the Vite + D3 site in `frontend/` (Phase 2). `README.md` documents
+the export schema that joins them and the deliberate deviations from `PLAN.md`; keep both
 files current when that contract changes.
 
 ## Commands
@@ -23,6 +23,9 @@ uv run pytest tests/test_mi.py::test_mi_of_independent_variables_is_zero_for_a_p
 uv run infoplane verify # ~10 s end-to-end run asserting the paper's invariants
 uv run infoplane run --num-seeds 50 --num-workers 8 --out data/infoplane.json   # ~10 min
 uv run infoplane sweep --train-sizes 50,100,500,4000 --outdir data/trainsize    # Figure 5
+
+cd frontend && npm install && npm run dev     # the figure pages (needs the data above)
+cd frontend && npm run build                  # static site -> frontend/dist
 ```
 
 No linter or formatter is configured. `data/` is gitignored — it is all regenerable.
@@ -46,6 +49,26 @@ at checkpoints) → `runner.py` (ensemble over seeds) → `export.py` (JSON cont
   verbatim into `metadata`; adding a knob means adding a field here and a flag in `cli.py`.
   `run_seed` interleaves training with measurement at the log-spaced checkpoints.
 - **`mi.py`** — the estimator, operating only on integer symbol arrays.
+
+## Frontend (`frontend/`)
+
+Five static pages (`index`, `fig2`..`fig5`), one Vite entry each — not an SPA. Shared
+modules in `src/scripts/`: `chart.js` (frames, axes, legend, tooltip, table view),
+`data.js` (fetch + reshape the export into typed arrays), `scrubber.js`, `theme.js`.
+`public/data` is a symlink to the repo's `data/`, dereferenced into `dist` at build.
+
+Rules that are load-bearing, not taste — a change here needs the same validation:
+
+- **Layer colour is an ORDINAL ramp** (one blue hue, 7 steps, monotone lightness),
+  generated in OKLCH and validated per theme. Never substitute a categorical or rainbow
+  palette: depth is ordered, and in a scatter only three categorical slots clear the
+  colourblind floor. Series that are *not* layers (train vs test) use `.c1`/`.c2`,
+  categorical slots 1-2.
+- Marks take a `l1`..`l7` class and read `--c` from CSS, so a theme switch repaints
+  without a re-render and a layer's colour never follows its rank.
+- **Never put I(X;T) and I(T;Y) on one pair of axes** (0-12 bits vs 0-1).
+- Figure 2 must read `runs`, not `aggregated` — see the expected-results note below.
+- Every chart keeps its table view, legend, and keyboard path.
 
 ## Don't try to synthesise the paper's labels
 

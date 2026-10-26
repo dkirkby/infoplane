@@ -4,9 +4,10 @@ Interactive replication of the information-plane dynamics in *Opening the Black 
 Deep Neural Networks via Information* (Shwartz-Ziv & Tishby, 2017). See `PLAN.md` for the
 full two-phase design.
 
-**Phase 1 (this package) is implemented**: it trains ensembles of the paper's network,
-estimates I(X;T) and I(T;Y) for every hidden layer at log-spaced epochs, and exports the
-trajectories as JSON for the Phase 2 frontend. Phase 2 (the Vite/D3 pages) is not started.
+**Both phases are implemented.** Phase 1 (the `infoplane` Python package) trains ensembles
+of the paper's network, estimates I(X;T) and I(T;Y) for every hidden layer at log-spaced
+epochs, and exports the trajectories as JSON. Phase 2 (`frontend/`) is a Vite + D3 site of
+four interactive figure pages that read those exports.
 
 ## Quick start
 
@@ -118,6 +119,59 @@ in `diagnostics`:
 - `I(X;T) ≤ H(X)` and `I(T;Y) ≤ H(Y)`.
 - Data processing inequality: `I(X;T₁) ≥ I(X;T₂) ≥ … ≥ I(X;T₇)` at every checkpoint.
 - Training loss converges.
+
+## Phase 2 — the figure pages
+
+```bash
+cd frontend
+npm install
+npm run dev        # http://localhost:5173
+npm run build      # static site -> frontend/dist (self-contained, ~13 MB with data)
+npm run preview    # serve the built site
+```
+
+Run the Phase 1 commands first: `frontend/public/data` is a symlink to the repo's `data/`
+directory, which is gitignored and regenerable, so a fresh clone has a dangling symlink
+until `infoplane fetch` and `infoplane run` have produced the exports.
+
+| Page | What it shows |
+| --- | --- |
+| `index.html` | Headline numbers, train/test accuracy against epoch, and the caveats below. |
+| `fig2.html` | The plane with one mark per (seed, layer) at a scrubbed epoch; hovering traces one seed through all seven layers. |
+| `fig3.html` | Mean trajectories over the whole run with the scrubbed epoch marked, beside bits-by-depth where the DPI ordering is visible. |
+| `fig4.html` | Both quantities against epoch on a log axis, with ±1σ bands on demand and a shared crosshair. |
+| `fig5.html` | Four training-set sizes as small multiples, each panel lazily fetched. |
+
+### Design decisions worth keeping
+
+- **Layer colour is an ordinal ramp, not a categorical palette.** Depth is an ordered
+  quantity — the DPI orders I(X;T) by it — so the reader should see the order in the
+  colour. One blue hue, 7 steps, monotone in lightness, generated in OKLCH and validated
+  in both themes (monotone L, every adjacent gap ≥ 0.06, surface-side end ≥ 2:1 contrast).
+  A categorical palette would also have been *unsafe* here: these are scatter plots, where
+  any two marks can be neighbours, and only three categorical slots clear the colourblind
+  separation floor under that condition. Dark mode is a separately validated set of steps,
+  not an inversion.
+- **Figure 4 is two charts, not one chart with two y-axes.** I(X;T) spans 0–12 bits and
+  I(T;Y) spans 0–1; aligning two such scales on one plot invents a relationship whose
+  slope is an artifact of the alignment.
+- **Figure 5 is faceted, not overlaid**, for the same colour reason — four overlaid sizes
+  could not be coloured safely in a scatter.
+- **Figure 2 plots `runs`, not `aggregated`**, because Phase 1 measured that averaging
+  destroys the fitting phase it exists to show.
+- **Direct labels are dropped, never nudged, when they collide.** A label pushed off its
+  mark stops pointing at anything; the legend and the table view keep every series
+  identifiable.
+- Every chart ships a table view, a legend, keyboard access (arrow keys drive the scrubber
+  and the crosshair), and tooltips that enhance rather than gate.
+
+### Not built
+
+The plan asked Figure 5 to overlay **theoretical IB bound curves**. Computing one means
+solving the information-bottleneck self-consistent equations for this joint distribution,
+which the Phase 1 pipeline does not do — so the page draws the limits the data does
+establish (I(X;T) ≤ H(X), I(T;Y) ≤ H(Y)) and says the bound is absent, rather than drawing
+a guess. Adding it would be a Phase 1 change first.
 
 ## Caveats that matter for Phase 2
 

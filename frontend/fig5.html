@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Figure 5 · Information plane</title>
+    <meta name="description" content="The information plane at four training-set sizes, as small multiples." />
+    <link rel="stylesheet" href="./src/styles/main.css" />
+  </head>
+  <body>
+    <header class="site">
+      <div class="wrap">
+        <span class="brand">Information plane</span>
+        <nav>
+          <a href="./index.html">Overview</a>
+          <a href="./fig2.html">Fig 2 · Seeds</a>
+          <a href="./fig3.html">Fig 3 · Phases</a>
+          <a href="./fig4.html">Fig 4 · Over time</a>
+          <a href="./fig5.html" aria-current="page">Fig 5 · Train size</a>
+        </nav>
+        <button id="theme" type="button">Theme: system</button>
+      </div>
+    </header>
+    <main class="wrap">
+      <h1>Figure 5 — how training-set size changes the plane</h1>
+      <p class="lede">
+        The same measurement repeated with 50, 100, 500 and 4,000 training samples. Test
+        accuracy climbs from 0.81 to 0.98 across these panels while every layer still
+        compresses — so compression alone is not what generalisation tracks here.
+      </p>
+
+      <div class="controls">
+        <div class="control">
+          <label for="epoch">Epoch</label>
+          <input type="range" id="epoch" />
+          <span class="readout" id="epoch-readout">epoch 0</span>
+        </div>
+        <div class="control"><button id="play" type="button" aria-pressed="false">Play</button></div>
+        <div class="control" id="sizes" role="group" aria-label="Training-set sizes"></div>
+      </div>
+
+      <div id="legend"></div>
+
+      <div class="grid-2" id="panels"></div>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Generalisation against training-set size</h2>
+            <p class="note">Final mean accuracy after 9,000 epochs, per panel.</p>
+          </div>
+        </div>
+        <div id="acc-table"></div>
+      </section>
+
+      <p class="note">
+        <strong>On the theoretical IB bound.</strong> The plan for this page called for
+        overlaying the information-bottleneck bound curve. Computing it means solving the IB
+        self-consistent equations for this joint distribution, which the Phase 1 pipeline does
+        not do, so it is not drawn here rather than drawn from a guess. What is drawn are the
+        two limits the data does establish: I(X;T) ≤ H(X) = 12 bits and I(T;Y) ≤ H(Y).
+      </p>
+      <p class="note">
+        Small multiples rather than four overlaid colours: these are scatter panels, where any
+        two marks can be neighbours, and a categorical palette only clears the colourblind
+        separation floor for three series under that condition. Faceting keeps the validated
+        ordinal layer ramp doing the one job colour has here — depth.
+      </p>
+    </main>
+    <script type="module" src="./src/scripts/fig5.js"></script>
+  </body>
+</html>

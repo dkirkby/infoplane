@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Figure 2 · Information plane</title>
+    <meta name="description" content="Information plane trajectories across random seeds, from Shwartz-Ziv & Tishby (2017)." />
+    <link rel="stylesheet" href="./src/styles/main.css" />
+  </head>
+  <body>
+    <header class="site">
+      <div class="wrap">
+        <span class="brand">Information plane</span>
+        <nav>
+          <a href="./index.html">Overview</a>
+          <a href="./fig2.html" aria-current="page">Fig 2 · Seeds</a>
+          <a href="./fig3.html">Fig 3 · Phases</a>
+          <a href="./fig4.html">Fig 4 · Over time</a>
+          <a href="./fig5.html">Fig 5 · Train size</a>
+        </nav>
+        <button id="theme" type="button">Theme: system</button>
+      </div>
+    </header>
+    <main class="wrap">
+      <h1>Figure 2 — the information plane, seed by seed</h1>
+      <p class="lede">
+        Every mark is one hidden layer of one network at one epoch: how many bits it keeps
+        about the input, against how many it keeps about the label. Scrub the epoch to watch
+        the layers move right (fitting) and then left (compression). Hover any mark to trace
+        that seed through all seven layers.
+      </p>
+
+      <div class="controls">
+        <div class="control">
+          <label for="epoch">Epoch</label>
+          <input type="range" id="epoch" />
+          <span class="readout" id="epoch-readout">epoch 0</span>
+        </div>
+        <div class="control">
+          <button id="play" type="button" aria-pressed="false">Play</button>
+        </div>
+      </div>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>I(T;Y) against I(X;T)</h2>
+            <p class="note">350 marks: 7 layers x 50 seeds. Large labelled marks are the ensemble mean per layer.</p>
+          </div>
+          <p class="note" id="provenance"></p>
+        </div>
+        <div class="plot" id="plot"></div>
+        <div id="legend"></div>
+        <div id="table"></div>
+      </section>
+
+      <p class="note">
+        <strong>Why individual seeds.</strong> The fitting phase is seed-dependent: 45 of 50
+        seeds show Layer 7 rising before it compresses, by a median 0.94 bits, but the
+        ensemble mean rises only about 0.49 bits because seeds peak at different epochs and
+        partly cancel. An averaged version of this figure would hide its own subject, so this
+        page plots the per-seed runs and shows the mean only as the labelled markers.
+        Bit values hold for the <span id="binsnote">30</span>-bin estimator; see the Overview.
+      </p>
+    </main>
+    <script type="module" src="./src/scripts/fig2.js"></script>
+  </body>
+</html>

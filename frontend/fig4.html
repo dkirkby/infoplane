@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Figure 4 · Information plane</title>
+    <meta name="description" content="Mutual information against training epoch, with ensemble spread and a shared crosshair." />
+    <link rel="stylesheet" href="./src/styles/main.css" />
+  </head>
+  <body>
+    <header class="site">
+      <div class="wrap">
+        <span class="brand">Information plane</span>
+        <nav>
+          <a href="./index.html">Overview</a>
+          <a href="./fig2.html">Fig 2 · Seeds</a>
+          <a href="./fig3.html">Fig 3 · Phases</a>
+          <a href="./fig4.html" aria-current="page">Fig 4 · Over time</a>
+          <a href="./fig5.html">Fig 5 · Train size</a>
+        </nav>
+        <button id="theme" type="button">Theme: system</button>
+      </div>
+    </header>
+    <main class="wrap">
+      <h1>Figure 4 — information over training time</h1>
+      <p class="lede">
+        The two quantities against epoch, on a logarithmic axis because the fitting phase
+        happens in the first few epochs and compression takes thousands. Hover anywhere to
+        read every layer at that epoch; hover a layer in the legend to see its spread across
+        the 50 seeds.
+      </p>
+
+      <div class="controls">
+        <div class="control">
+          <button id="band" type="button" aria-pressed="false">Show ±1σ band for all layers</button>
+        </div>
+        <div class="control"><span class="note" id="hint">Hover the plot for a crosshair readout.</span></div>
+      </div>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>I(X;T) — bits about the input</h2>
+            <p class="note">Rises during fitting, then falls for thousands of epochs: the compression phase.</p>
+          </div>
+          <p class="note" id="provenance"></p>
+        </div>
+        <div class="plot" id="ixt"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>I(T;Y) — bits about the label</h2>
+            <p class="note">Rises to the ceiling H(Y) and stays there while I(X;T) is still falling.</p>
+          </div>
+        </div>
+        <div class="plot" id="ity"></div>
+        <div id="legend"></div>
+        <div id="table"></div>
+      </section>
+
+      <p class="note">
+        Two charts, one shared x-axis — never one chart with two y-scales. I(X;T) spans 0–12
+        bits and I(T;Y) spans 0–1; putting them on a common axis would invent a relationship
+        between two scales whose alignment is arbitrary.
+      </p>
+    </main>
+    <script type="module" src="./src/scripts/fig4.js"></script>
+  </body>
+</html>

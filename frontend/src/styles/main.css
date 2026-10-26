@@ -1,0 +1,258 @@
+/* Design tokens.
+   Layer colours are an ORDINAL ramp, not categorical: layer depth is an ordered
+   quantity (the data processing inequality orders I(X;T) by depth), so the reader
+   should see the order in the colour. One blue hue, monotone in lightness, 7 steps.
+   Both ramps were generated in OKLCH and validated with the dataviz skill's
+   validate_palette.js --ordinal in their own mode: monotone L, every adjacent
+   gap >= 0.06, surface-side end clearing 2:1 contrast, hue spread 4 degrees.
+   A categorical palette would have been wrong here twice over - these are scatter
+   plots, where only three categorical slots clear the all-pairs CVD floor. */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --muted: #898781;
+  --gridline: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --accent: #eb6834;          /* highlight only - never a series */
+  /* Categorical slots 1-2, for series that are NOT layers (train vs test).
+     Validated as a pair in both modes: worst CVD dE 24.7 light / 26.8 dark. */
+  --cat-1: #2a78d6;
+  --cat-2: #eb6834;
+  --layer-1: #86b6ef;
+  --layer-2: #619fe9;
+  --layer-3: #3987e5;
+  --layer-4: #2771ca;
+  --layer-5: #1c5cab;
+  --layer-6: #14488b;
+  --layer-7: #0d366b;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Dark is selected, not flipped: its own steps from the same hue, validated
+   against the dark surface. Declared under both scopes so the explicit toggle
+   wins over the OS setting in either direction. */
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --gridline: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --accent: #d95926;
+    --cat-1: #3987e5;
+    --cat-2: #d95926;
+    --layer-1: #cde2fb;
+    --layer-2: #a6c9f5;
+    --layer-3: #7db1ee;
+    --layer-4: #5497e7;
+    --layer-5: #2f7ddb;
+    --layer-6: #2265b8;
+    --layer-7: #184f95;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface-1: #1a1a19;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --muted: #898781;
+  --gridline: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+  --accent: #d95926;
+  --cat-1: #3987e5;
+  --cat-2: #d95926;
+  --layer-1: #cde2fb;
+  --layer-2: #a6c9f5;
+  --layer-3: #7db1ee;
+  --layer-4: #5497e7;
+  --layer-5: #2f7ddb;
+  --layer-6: #2265b8;
+  --layer-7: #184f95;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 0 4rem;
+  background: var(--page);
+  color: var(--text-primary);
+  font: 15px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+
+/* ---- masthead & nav ---- */
+header.site {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-1);
+  margin-bottom: 1.5rem;
+}
+header.site .wrap { display: flex; align-items: baseline; gap: 1.25rem; flex-wrap: wrap; padding: 0.85rem 16px; }
+header.site .brand { font-weight: 650; letter-spacing: -0.01em; }
+header.site nav { display: flex; gap: 0.25rem; flex-wrap: wrap; margin-right: auto; }
+header.site nav a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 0.25rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+header.site nav a:hover { background: color-mix(in oklab, var(--text-primary) 7%, transparent); }
+header.site nav a[aria-current="page"] { color: var(--text-primary); font-weight: 600; background: color-mix(in oklab, var(--text-primary) 8%, transparent); }
+
+h1 { font-size: 1.5rem; letter-spacing: -0.02em; margin: 0 0 0.3rem; }
+h2 { font-size: 1.05rem; letter-spacing: -0.01em; margin: 0 0 0.25rem; }
+.lede { color: var(--text-secondary); max-width: 68ch; margin: 0 0 1.5rem; }
+.note { color: var(--text-secondary); font-size: 0.875rem; max-width: 72ch; }
+.note code, code { font-family: var(--mono); font-size: 0.9em; }
+
+/* ---- controls: one row, above the charts it scopes ---- */
+.controls {
+  display: flex; align-items: center; gap: 1rem 1.25rem; flex-wrap: wrap;
+  padding: 0.75rem 1rem; margin-bottom: 1rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.control { display: flex; align-items: center; gap: 0.5rem; }
+.control > label { color: var(--text-secondary); font-size: 0.85rem; white-space: nowrap; }
+.readout { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.85rem; min-width: 7.5ch; }
+input[type="range"] { width: clamp(140px, 34vw, 340px); accent-color: var(--layer-5); }
+button, .toggle {
+  font: inherit; font-size: 0.85rem;
+  color: var(--text-primary); background: var(--surface-1);
+  border: 1px solid var(--axis); border-radius: 7px;
+  padding: 0.3rem 0.7rem; cursor: pointer; min-height: 30px;
+}
+button:hover, .toggle:hover { background: color-mix(in oklab, var(--text-primary) 6%, transparent); }
+button[aria-pressed="true"], .toggle[aria-pressed="true"] {
+  background: color-mix(in oklab, var(--layer-5) 16%, transparent);
+  border-color: var(--layer-5);
+  font-weight: 600;
+}
+:is(button, input, a, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px;
+}
+
+/* ---- chart cards ---- */
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1rem 0.75rem;
+  margin-bottom: 1.25rem;
+}
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.card-head p { margin: 0; }
+/* The container grows with its content so the x-axis band is never cut off into
+   a nested scrollbar. */
+.plot { width: 100%; }
+.plot svg { display: block; width: 100%; height: auto; overflow: visible; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1.25rem; }
+
+/* While data reloads, hold the previous render at reduced opacity - no skeleton,
+   no layout jump. */
+.loading { opacity: 0.45; transition: opacity 120ms linear; }
+
+/* ---- svg chrome: hairline, solid, recessive ---- */
+.grid line { stroke: var(--gridline); stroke-width: 1; shape-rendering: crispEdges; }
+.axis path.domain { stroke: var(--axis); stroke-width: 1; }
+.axis line { stroke: var(--axis); stroke-width: 1; }
+.axis text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.axis-title { fill: var(--text-secondary); font-size: 12px; }
+.bound { stroke: var(--axis); stroke-width: 1; stroke-linecap: round; }
+.bound-label { fill: var(--muted); font-size: 10.5px; }
+
+/* Marks. Dots carry a 2px ring in the surface colour so they stay legible where
+   they overlap; the ring is part of the hit target, never a separating border. */
+.dot { stroke: var(--surface-1); stroke-width: 2; }
+.series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.band { stroke: none; fill-opacity: 0.1; }
+.dim { opacity: 0.16; }
+.trace { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.crosshair { stroke: var(--text-secondary); stroke-width: 1; shape-rendering: crispEdges; }
+.point-label { fill: var(--text-secondary); font-size: 10.5px; font-weight: 600; }
+
+/* Per-layer colour, applied by class so a theme change repaints without a
+   re-render, and so the colour always follows the layer (never its rank). */
+.l1 { --c: var(--layer-1); } .l2 { --c: var(--layer-2); } .l3 { --c: var(--layer-3); }
+.l4 { --c: var(--layer-4); } .l5 { --c: var(--layer-5); } .l6 { --c: var(--layer-6); }
+.l7 { --c: var(--layer-7); }
+.c1 { --c: var(--cat-1); } .c2 { --c: var(--cat-2); }
+.dot, .band { fill: var(--c); }
+.series-line { stroke: var(--c); }
+
+/* ---- legend: always present for >= 2 series ---- */
+.legend { display: flex; gap: 0.15rem; flex-wrap: wrap; align-items: center; margin: 0.35rem 0 0; padding: 0; list-style: none; }
+.legend li { margin: 0; }
+.legend button {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  border: 1px solid transparent; background: none; padding: 0.2rem 0.45rem; min-height: 26px;
+  color: var(--text-secondary); font-size: 0.8rem;
+}
+.legend button:hover { background: color-mix(in oklab, var(--text-primary) 6%, transparent); }
+.legend button[aria-pressed="true"] { color: var(--text-primary); font-weight: 600; border-color: var(--border); }
+.legend .key { width: 16px; height: 3px; border-radius: 2px; background: var(--c); flex: none; }
+.legend .key.dot-key { width: 9px; height: 9px; border-radius: 50%; }
+
+/* ---- tooltip: values lead, labels follow; series keyed by a line, not a box ---- */
+.tip {
+  position: fixed; z-index: 10; pointer-events: none; opacity: 0;
+  transform: translate(-50%, calc(-100% - 12px));
+  background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+  padding: 0.5rem 0.6rem; font-size: 0.8rem; min-width: 148px;
+  transition: opacity 90ms linear;
+}
+.tip[data-show="1"] { opacity: 1; }
+.tip h3 { margin: 0 0 0.35rem; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); letter-spacing: 0.01em; }
+.tip table { border-collapse: collapse; width: 100%; }
+.tip td { padding: 0.08rem 0; vertical-align: baseline; }
+.tip .tkey { width: 14px; }
+.tip .tkey i { display: block; width: 14px; height: 3px; border-radius: 2px; background: var(--c); }
+.tip .tname { color: var(--text-secondary); padding-right: 0.5rem; white-space: nowrap; }
+.tip .tval { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ---- table view: the WCAG-clean twin every chart ships with ---- */
+details.tableview { margin: 0.5rem 0 0; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+details.tableview summary { cursor: pointer; color: var(--text-secondary); font-size: 0.82rem; }
+details.tableview .scroll { max-height: 320px; overflow: auto; margin-top: 0.5rem; }
+table.data { border-collapse: collapse; font-size: 0.8rem; width: 100%; }
+table.data th, table.data td { text-align: right; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+table.data th:first-child, table.data td:first-child { text-align: left; }
+table.data thead th { color: var(--text-secondary); font-weight: 600; position: sticky; top: 0; background: var(--surface-1); }
+table.data td { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+table.data td:first-child { font-family: var(--sans); }
+table.data .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 0.45rem; }
+
+/* ---- stat tiles ---- */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
+.tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.85rem; }
+.tile .label { color: var(--text-secondary); font-size: 0.78rem; }
+.tile .value { font-size: 1.45rem; font-weight: 600; letter-spacing: -0.02em; margin-top: 0.1rem; }
+.tile .sub { color: var(--muted); font-size: 0.75rem; }
+
+/* ---- figure index cards ---- */
+.figlist { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.9rem; margin: 0 0 1.5rem; padding: 0; list-style: none; }
+.figlist a { display: block; height: 100%; background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 0.9rem; text-decoration: none; color: inherit; }
+.figlist a:hover { border-color: var(--axis); }
+.figlist .k { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.figlist strong { display: block; margin: 0.15rem 0 0.3rem; }
+.figlist p { margin: 0; color: var(--text-secondary); font-size: 0.85rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0ms !important; }
+}

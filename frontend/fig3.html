@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Figure 3 · Information plane</title>
+    <meta name="description" content="Fitting versus compression: mean information-plane trajectories and the layer ordering at each epoch." />
+    <link rel="stylesheet" href="./src/styles/main.css" />
+  </head>
+  <body>
+    <header class="site">
+      <div class="wrap">
+        <span class="brand">Information plane</span>
+        <nav>
+          <a href="./index.html">Overview</a>
+          <a href="./fig2.html">Fig 2 · Seeds</a>
+          <a href="./fig3.html" aria-current="page">Fig 3 · Phases</a>
+          <a href="./fig4.html">Fig 4 · Over time</a>
+          <a href="./fig5.html">Fig 5 · Train size</a>
+        </nav>
+        <button id="theme" type="button">Theme: system</button>
+      </div>
+    </header>
+    <main class="wrap">
+      <h1>Figure 3 — fitting against compression</h1>
+      <p class="lede">
+        The ensemble-mean path each layer takes through the plane over all 9,000 epochs, with
+        the scrubbed epoch marked. The companion chart shows the same instant as bits per
+        layer, where the data processing inequality has to hold: a layer can never know more
+        about the input than the layer below it.
+      </p>
+
+      <div class="controls">
+        <div class="control">
+          <label for="epoch">Epoch</label>
+          <input type="range" id="epoch" />
+          <span class="readout" id="epoch-readout">epoch 0</span>
+        </div>
+        <div class="control"><button id="play" type="button" aria-pressed="false">Play</button></div>
+        <div class="control">
+          <button id="trail" type="button" aria-pressed="true">Show full paths</button>
+        </div>
+      </div>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Mean trajectory per layer</h2>
+            <p class="note">Open marks are the scrubbed epoch; the faint path is the whole run.</p>
+          </div>
+          <p class="note" id="provenance"></p>
+        </div>
+        <div class="plot" id="plane"></div>
+        <div id="legend"></div>
+        <div id="plane-table"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>I(X;T) by depth at this epoch</h2>
+            <p class="note" id="dpi-note"></p>
+          </div>
+        </div>
+        <div class="plot" id="dpi"></div>
+        <div id="dpi-table"></div>
+      </section>
+    </main>
+    <script type="module" src="./src/scripts/fig3.js"></script>
+  </body>
+</html>
