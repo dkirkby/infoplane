@@ -1,0 +1,32 @@
+[project]
+name = "infoplane"
+version = "0.1.0"
+description = "Replication of the information-plane dynamics from Shwartz-Ziv & Tishby (2017)"
+readme = "README.md"
+authors = [
+    { name = "David Kirkby", email = "dkirkby@uci.edu" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.1",
+    "scipy>=1.14",
+    "torch>=2.4",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+arrow = ["pyarrow>=17.0"]
+mnist = ["torchvision>=0.19"]
+
+[project.scripts]
+infoplane = "infoplane.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

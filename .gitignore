@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Generated data products (regenerate with `uv run infoplane run`)
+data/
+*.json.gz
+
+# Node / Vite (phase 2)
+node_modules/
+frontend/dist/
+
+# Tooling caches
+.pytest_cache/
