@@ -15,8 +15,9 @@
  * chart.js, so the two pages cannot drift apart: a trajectory means the same
  * thing on both.
  *
- * Each size is a separate Phase 1 export (~1.9 MB), fetched only when its panel
- * is switched on.
+ * Each size is a separate Phase 1 export (~1.9 MB); all four load up front, since
+ * all four are always on screen -- the point of the figure is the comparison
+ * between them, which a reader should not have to assemble by toggling.
  */
 import { line } from "d3-shape";
 import { scaleLinear } from "d3-scale";
@@ -42,7 +43,7 @@ import {
 
 initTheme(document.getElementById("theme"));
 
-const state = { epochIdx: 0, emphasis: null, visible: null, on: new Set() };
+const state = { epochIdx: 0, emphasis: null, visible: null };
 const sets = new Map(); // trainSize -> prepared dataset
 const panels = new Map(); // trainSize -> { card, update }
 let manifest = [];
@@ -52,30 +53,7 @@ let total = 4096; // denominator for the "% of the data" labels
 
 loadSweepIndex().then(async (sizes) => {
   manifest = sizes;
-  sizes.forEach((s) => state.on.add(s.train_size));
-
-  const group = document.getElementById("sizes");
-  for (const s of sizes) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "toggle";
-    b.setAttribute("aria-pressed", "true");
-    b.textContent = `N = ${s.train_size.toLocaleString("en-US")}`;
-    b.addEventListener("click", async () => {
-      if (state.on.has(s.train_size)) {
-        if (state.on.size === 1) return; // never leave the page empty
-        state.on.delete(s.train_size);
-      } else {
-        state.on.add(s.train_size);
-      }
-      b.setAttribute("aria-pressed", String(state.on.has(s.train_size)));
-      await ensureLoaded();
-      rebuild();
-    });
-    group.append(b);
-  }
-
-  await ensureLoaded();
+  await loadAll();
 
   const any = sets.values().next().value;
   total = any.meta.n_samples ?? total;
@@ -125,13 +103,11 @@ loadSweepIndex().then(async (sizes) => {
   responsive(document.getElementById("panels"), () => rebuild());
 });
 
-async function ensureLoaded() {
-  const wanted = manifest.filter((m) => state.on.has(m.train_size) && !sets.has(m.train_size));
-  if (!wanted.length) return;
+async function loadAll() {
   const host = document.getElementById("panels");
   host.classList.add("loading"); // hold the previous render, no skeleton
   await Promise.all(
-    wanted.map(async (m) => {
+    manifest.map(async (m) => {
       sets.set(m.train_size, await load(`data/trainsize/${m.file}`));
     })
   );
@@ -143,14 +119,6 @@ const pct = (n) => `${Math.round((n / total) * 100)}%`;
 
 function rebuild() {
   const host = document.getElementById("panels");
-  const active = manifest.filter((m) => state.on.has(m.train_size));
-
-  for (const [size, p] of panels) {
-    if (!state.on.has(size)) {
-      p.card.remove();
-      panels.delete(size);
-    }
-  }
   host.textContent = "";
   panels.clear();
 
@@ -158,7 +126,7 @@ function rebuild() {
   // cards are in it, so a card measured while it is still the only one reports
   // the full grid width and its chart would then be built too large and scaled
   // down. Append every card first, let the grid settle, and only then measure.
-  const built = active.map((m) => {
+  const built = manifest.map((m) => {
     const card = document.createElement("section");
     card.className = "card panel";
     const head = document.createElement("div");
@@ -243,7 +211,16 @@ function buildPanel(host, tableHost, d, width, meta) {
 
   const haloLayer = plot.append("g");
   const pathLayer = plot.append("g");
+  const traceLayer = plot.append("g");
   const markLayer = plot.append("g");
+
+  // The layer chain at this epoch, drawn exactly as Figure 2 draws it: neutral
+  // and dashed, because it is not a series. It starts at the pinned marker -- the
+  // data processing chain does not begin at the first plotted layer.
+  const trace = traceLayer.append("path").attr("class", "trace");
+  const chainLine = line()
+    .x((pt) => x(pt[0]))
+    .y((pt) => y(pt[1]));
 
   const mkPath = (li) =>
     line()
@@ -264,6 +241,12 @@ function buildPanel(host, tableHost, d, width, meta) {
 
   return function render() {
     const e = Math.min(state.epochIdx, d.nEpochs - 1);
+    const chain = shown
+      .filter((_, si) => state.visible[si])
+      .map((li) => [d.layerAgg(li).ixt[e], d.layerAgg(li).ity[e]]);
+    if (pinned.length && state.visible[0]) chain.unshift([d.bounds.H_X, d.bounds.H_Y]);
+    trace.attr("d", chainLine(chain));
+
     shown.forEach((li, si) => {
       const on = state.visible[si];
       const emph = state.emphasis == null || state.emphasis === si;

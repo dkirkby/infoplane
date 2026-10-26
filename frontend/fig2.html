@@ -29,13 +29,13 @@
       </p>
 
       <div class="controls">
-        <div class="control">
-          <label for="epoch">Epoch</label>
-          <input type="range" id="epoch" />
-          <span class="readout" id="epoch-readout">epoch 0</span>
-        </div>
+        <!-- Play first, then the slider: the readout to its right already names
+             the value, so a leading "Epoch" label only repeated it. The slider's
+             accessible name comes from scrubber.js. -->
         <div class="control">
           <button id="play" type="button" aria-pressed="false">Play</button>
+          <input type="range" id="epoch" />
+          <span class="readout" id="epoch-readout">epoch 0</span>
         </div>
       </div>
 

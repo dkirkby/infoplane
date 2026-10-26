@@ -31,13 +31,14 @@
       </p>
 
       <div class="controls">
+        <!-- Play first, then the slider: the readout to its right already names
+             the value, so a leading "Epoch" label only repeated it. The slider's
+             accessible name comes from scrubber.js. -->
         <div class="control">
-          <label for="epoch">Epoch</label>
+          <button id="play" type="button" aria-pressed="false">Play</button>
           <input type="range" id="epoch" />
           <span class="readout" id="epoch-readout">epoch 0</span>
         </div>
-        <div class="control"><button id="play" type="button" aria-pressed="false">Play</button></div>
-        <div class="control" id="sizes" role="group" aria-label="Training-set sizes"></div>
       </div>
 
       <div class="panel-head">

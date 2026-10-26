@@ -152,6 +152,10 @@ h2 { font-size: 1.05rem; letter-spacing: -0.01em; margin: 0 0 0.25rem; }
 .control { display: flex; align-items: center; gap: 0.5rem; }
 .control > label { color: var(--text-secondary); font-size: 0.85rem; white-space: nowrap; }
 .readout { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.85rem; min-width: 7.5ch; }
+/* Wide enough for "Pause" as well as "Play": now that the button sits to the
+   LEFT of the slider, letting it resize on toggle would shove the slider and the
+   readout sideways every time playback starts. */
+#play { min-width: 4.6rem; }
 input[type="range"] { width: clamp(140px, 34vw, 340px); accent-color: var(--layer-5); }
 button, .toggle {
   font: inherit; font-size: 0.85rem;

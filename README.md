@@ -270,7 +270,7 @@ until `infoplane fetch` and `infoplane run` have produced the exports.
 | --- | --- |
 | `index.html` | Headline numbers, train/test accuracy against epoch, and the caveats below. |
 | `fig2.html` | The plane with one mark per (seed, layer) at a scrubbed epoch; hovering traces one seed through all five layers. |
-| `fig3.html` | The plane at four training-set fractions as small multiples, each panel lazily fetched. |
+| `fig3.html` | The plane at four training-set fractions as small multiples; all four exports load up front, since the figure is the comparison between them. |
 | `fig4.html` | Both quantities against epoch on a log axis, with ±1σ bands on demand and a shared crosshair. |
 
 ### Design decisions worth keeping
