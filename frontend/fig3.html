@@ -48,6 +48,8 @@
 
       <div class="grid-2 tight" id="panels"></div>
 
+      <div id="plane-table"></div>
+
       <section class="card">
         <div class="card-head">
           <div>
@@ -65,8 +67,8 @@
         compression needs data — it happens in every panel — but that what compression
         costs depends on how much data there is. With few samples the deep layers lose
         label information as they compress, which is overfitting the sample rather than
-        the rule; with most of the data they compress and keep it. Each panel states its
-        own final accuracy, and the table below collects them with the generalisation gap.
+        the rule; with most of the data they compress and keep it. The accuracy table below
+        has the final numbers per panel, with the generalisation gap.
       </p>
 
       <p class="note">

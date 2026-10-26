@@ -132,28 +132,25 @@ function rebuild() {
     const head = document.createElement("div");
     head.className = "card-head";
     const left = document.createElement("div");
+    // One line, no accuracy subtitle: the accuracies are all in the table below
+    // the grid, where they can be compared, and a second line in every panel is
+    // 4 lines of height spent on something read once.
     const h2 = document.createElement("h2");
-    h2.textContent = `${pct(m.train_size)} of the data`;
-    const note = document.createElement("p");
-    note.className = "note";
-    note.textContent =
-      `N = ${m.train_size.toLocaleString("en-US")} · test ${m.final_test_acc.toFixed(3)} · ` +
-      `train ${m.final_train_acc.toFixed(3)}`;
-    left.append(h2, note);
+    h2.textContent = `${pct(m.train_size)} of the data (N = ${m.train_size.toLocaleString("en-US")})`;
+    left.append(h2);
     head.append(left);
     const plot = document.createElement("div");
     plot.className = "plot";
-    const table = document.createElement("div");
-    card.append(head, plot, table);
+    card.append(head, plot);
     host.append(card);
-    return { m, card, plot, table };
+    return { m, card, plot };
   });
 
-  for (const { m, card, plot, table } of built) {
+  for (const { m, card, plot } of built) {
     const panelW = Math.max(240, Math.floor(plot.getBoundingClientRect().width));
     panels.set(m.train_size, {
       card,
-      update: buildPanel(plot, table, sets.get(m.train_size), panelW, m),
+      update: buildPanel(plot, sets.get(m.train_size), panelW),
     });
   }
   paint();
@@ -161,9 +158,50 @@ function rebuild() {
 
 function paint() {
   for (const p of panels.values()) p.update();
+  planeTable();
 }
 
-function buildPanel(host, tableHost, d, width, meta) {
+/** One table for the whole grid, rather than one under each panel.
+ *
+ * The panels carry no direct labels -- identity comes from the shared legend --
+ * and two of the light-mode hues sit under 3:1 against the surface, so some
+ * non-colour path to the numbers has to exist. One table for four panels keeps
+ * that path and keeps the grid compact; four disclosure rows inside the grid
+ * were height spent on furniture.
+ */
+function planeTable() {
+  const rows = [];
+  for (const m of manifest) {
+    const d = sets.get(m.train_size);
+    if (!d) continue;
+    const e = Math.min(state.epochIdx, d.nEpochs - 1);
+    d.layers.forEach((name, li) => {
+      const si = shown.indexOf(li);
+      const a = d.layerAgg(li);
+      rows.push({
+        layer: si >= 0 ? si : null,
+        // Layer first, so the swatch -- which tableView puts on the first cell --
+        // lands beside the series it belongs to rather than beside a percentage.
+        cells: [
+          si >= 0 ? name : `${name} (pinned)`,
+          pct(m.train_size),
+          bits(a.ixt[e]),
+          bits(a.ity[e]),
+        ],
+      });
+    });
+  }
+  const any = sets.values().next().value;
+  const e = Math.min(state.epochIdx, any.nEpochs - 1);
+  tableView(document.getElementById("plane-table"), {
+    summary: `Table view — every layer in every panel at epoch ${any.epochs[e].toLocaleString("en-US")}`,
+    columns: ["Layer", "Share of data", "I(X;T)", "I(T;Y)"],
+    swatchFor: (si) => PLANE_SERIES[si].cls,
+    rows,
+  });
+}
+
+function buildPanel(host, d, width) {
   const height = Math.max(230, Math.round(width * 0.78));
   const { plot, w, h } = frame(host, {
     width,
@@ -257,21 +295,6 @@ function buildPanel(host, tableHost, d, width, meta) {
         .attr("transform", `translate(${x(a.ixt[e])},${y(a.ity[e])})`)
         .attr("display", on ? null : "none")
         .classed("dim", !emph);
-    });
-
-    // Every layer, including the pinned ones that are only a marker on the plot.
-    tableView(tableHost, {
-      summary: `Table view — ${pct(meta.train_size)} at epoch ${d.epochs[e].toLocaleString("en-US")}`,
-      columns: ["Layer", "I(X;T)", "I(T;Y)"],
-      swatchFor: (si) => PLANE_SERIES[si].cls,
-      rows: d.layers.map((name, li) => {
-        const si = shown.indexOf(li);
-        const a = d.layerAgg(li);
-        return {
-          layer: si >= 0 ? si : null,
-          cells: [si >= 0 ? name : `${name} (pinned)`, bits(a.ixt[e]), bits(a.ity[e])],
-        };
-      }),
     });
   };
 }
