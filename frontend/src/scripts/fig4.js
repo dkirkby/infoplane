@@ -253,7 +253,7 @@ function buildChart({ host, width, first, key, sdKey, max, yLabel, bound, endLab
         const on = state.visible[k];
         const emph = state.emphasis == null || state.emphasis === k;
         linePaths[k].attr("display", on ? null : "none").classed("dim", !emph);
-        // A band per layer by default would be seven overlapping washes; show one
+        // A band per layer by default would be a stack of overlapping washes; show one
         // on legend hover, or all on explicit request.
         const showBand = on && (state.allBands || state.emphasis === k);
         bandPaths[k].attr("display", showBand ? null : "none");

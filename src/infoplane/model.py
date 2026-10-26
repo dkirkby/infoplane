@@ -5,11 +5,26 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-# Shwartz-Ziv & Tishby (2017): "7 fully connected hidden layers of widths
-# 12-10-7-5-4-3-2".  These are the *hidden* widths; the input is separately
-# 12-dimensional and the output is a single sigmoid unit.  The figures' "Layer 1"
-# ... "Layer 7" are exactly these.
-PAPER_HIDDEN_WIDTHS: tuple[int, ...] = (12, 10, 7, 5, 4, 3, 2)
+# Shwartz-Ziv & Tishby (2017) §4.1 writes the network as "12-10-7-5-4-3-2" and
+# calls it "7 fully connected hidden layers".  Read literally that gives seven
+# hidden layers, but the paper's own Figure 4 caption writes a network as
+# "input=12-10-8-6-4-2-1=output" -- the same seven-number format with the first
+# entry the input and the last the output -- and §4.1 adds that "layer 1 is the
+# hidden layer closest to the input and the highest is the output layer".  Under
+# that convention "12-10-7-5-4-3-2" is a 12-dim input, FIVE hidden layers of
+# 10-7-5-4-3, and a 2-unit output, which is exactly what the authors' code builds
+# (`select_network_arch('1') -> [10, 7, 5, 4, 3]`, IDNNs
+# `idnns/networks/network_paramters.py`).  Figure 2 shows about five or six
+# clusters rather than seven, which agrees.
+#
+# So these are the five hidden widths; the input is separately 12-dimensional and
+# the output is a single sigmoid unit (the authors use a 2-way softmax, which is
+# the same model up to parameterisation).  The figures' "Layer 1" ... "Layer 5"
+# are exactly these.  Taking the literal seven-layer reading instead inserts a
+# 12-wide and a 2-wide hidden layer: the extra wide layer is pinned at
+# `I(X;T) = H(X) = 12` bits and can never move, and the 2-unit tanh bottleneck
+# makes the network measurably harder to optimise.
+PAPER_HIDDEN_WIDTHS: tuple[int, ...] = (10, 7, 5, 4, 3)
 
 
 class InfoPlaneNet(nn.Module):

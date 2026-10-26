@@ -27,7 +27,7 @@
         Every mark is one hidden layer of one network at one epoch: how many bits it keeps
         about the input, against how many it keeps about the label. Scrub the epoch to watch
         the layers move right (fitting) and then left (compression). Hover any mark to trace
-        that seed through all seven layers.
+        that seed through every layer.
       </p>
 
       <div class="controls">
@@ -45,7 +45,7 @@
         <div class="card-head">
           <div>
             <h2>I(T;Y) against I(X;T)</h2>
-            <p class="note">350 marks: 7 layers x 50 seeds. Large labelled marks are the ensemble mean per layer.</p>
+            <p class="note" id="markcount"></p>
           </div>
           <p class="note" id="provenance"></p>
         </div>
@@ -55,11 +55,13 @@
       </section>
 
       <p class="note">
-        <strong>Why individual seeds.</strong> The fitting phase is seed-dependent: 45 of 50
-        seeds show Layer 7 rising before it compresses, by a median 0.94 bits, but the
-        ensemble mean rises only about 0.49 bits because seeds peak at different epochs and
-        partly cancel. An averaged version of this figure would hide its own subject, so this
-        page plots the per-seed runs and shows the mean only as the labelled markers.
+        <strong>Why individual seeds.</strong> The paper's own Figure 2 is a scatter of 50
+        networks, and the spread is part of what it shows: every seed takes a visibly
+        different route to nearly the same destination. The fitting phase does survive
+        averaging here — all 50 seeds show the deepest layer rising before it compresses,
+        by a median 1.51 bits, peaking around epoch 42 — so the labelled mean markers tell
+        the same story as the cloud. That was not true of an earlier configuration of this
+        pipeline, where the arc was over within two epochs and cancelled in the mean.
         Bit values hold for the <span id="binsnote">30</span>-bin estimator; see the Overview.
       </p>
     </main>

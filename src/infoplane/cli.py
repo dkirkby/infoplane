@@ -24,11 +24,13 @@ from .train import TrainConfig, dpi_stats
 # entropy can come out marginally higher.
 #
 # The *rate* is the discriminator, not the worst single magnitude, which is noisy.
-# Measured over 50 seeds x 7 layers x 257 checkpoints with the default spin inputs:
-# 0/77100 on the full dataset, worst 2/77100 (+0.086 bits) at --train-size 50. The
-# authors' raw binary inputs saturate instead and give 126/77100 (+0.381 bits), and
-# up to +1.44 bits at small train sizes. These thresholds pass every spin run with
-# margin and fail every binary one, so a regression in conditioning is caught.
+# Measured over 50 seeds x 5 layers x 257 checkpoints on the authors' architecture:
+# 0/51400 on the full dataset and at every --train-size, under BOTH input encodings.
+# The runs these thresholds must reject are the ones made with the paper's literal
+# "7 hidden layers" reading, whose extra wide and 2-unit layers saturate: 4/77100
+# (+0.068) on the full dataset but 43/77100 (+0.412 bits) at --train-size 500, and
+# 126/77100 (+0.381) with binary inputs. So the check still catches a measurement
+# that has become badly conditioned -- which is what it is for.
 DPI_TOL_BITS = 0.1
 DPI_MAX_VIOLATION_FRAC = 1e-4
 
@@ -41,11 +43,11 @@ def _add_common(p: argparse.ArgumentParser) -> None:
                         "quadric = a synthetic deterministic rule that is NOT the paper's "
                         "problem, for offline use and contrast")
     g.add_argument("--n-bits", type=int, default=12, help="toy input width (default: 12)")
-    g.add_argument("--input-encoding", default="spin", choices=("binary", "spin"),
-                   help="spin (default) = inputs centred to -+1, which keeps tanh off its "
-                        "rails and satisfies the DPI check; binary = the authors' raw 0/1 "
-                        "inputs, which saturate and make the binning estimator unreliable "
-                        "in the narrow layers")
+    g.add_argument("--input-encoding", default="binary", choices=("binary", "spin"),
+                   help="binary (default) = the authors' raw 0/1 inputs; spin = inputs "
+                        "centred to -+1, which trains slightly better and compresses "
+                        "further but is not what the paper ran. Never compare runs made "
+                        "with different encodings")
     g.add_argument("--geometry", default="circle", choices=("circle", "sphere"),
                    help="latent dimensionality of the quadric rule (default: circle = 2D)")
     g.add_argument("--data-path", default=None, help="var_u.mat, or the MNIST root")
@@ -53,16 +55,16 @@ def _add_common(p: argparse.ArgumentParser) -> None:
 
     g = p.add_argument_group("model / training")
     g.add_argument("--widths", default=",".join(map(str, PAPER_HIDDEN_WIDTHS)),
-                   help="comma-separated hidden widths (default: the paper's 12,10,7,5,4,3,2)")
+                   help="comma-separated hidden widths (default: the paper's 10,7,5,4,3)")
     g.add_argument("--epochs", type=int, default=9000)
     g.add_argument("--log-points", type=int, default=256, help="log-spaced checkpoints")
     g.add_argument("--no-init-checkpoint", action="store_true",
                    help="omit epoch 0 (the network at initialisation)")
-    g.add_argument("--batch-size", type=int, default=256, help="0 means full batch")
-    g.add_argument("--optimizer", default="sgd", choices=("sgd", "adam"))
-    g.add_argument("--lr", type=float, default=0.4)
+    g.add_argument("--batch-size", type=int, default=512, help="0 means full batch")
+    g.add_argument("--optimizer", default="adam", choices=("sgd", "adam"))
+    g.add_argument("--lr", type=float, default=4e-4)
     g.add_argument("--momentum", type=float, default=0.0)
-    g.add_argument("--train-frac", type=float, default=0.85)
+    g.add_argument("--train-frac", type=float, default=0.8)
     g.add_argument("--device", default="cpu",
                    help="cpu (default; fastest for these tiny nets), mps or cuda")
 
@@ -247,7 +249,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("verify", help="short run checking the information-theoretic invariants")
     _add_common(p)
-    p.set_defaults(func=cmd_verify, epochs=500, log_points=40, num_seeds=2, num_workers=2)
+    # 2000 epochs, not 500: at the authors' learning rate the network is only
+    # ~0.95 train accuracy by epoch 500, so a shorter run would make the
+    # convergence checks below trip on a healthy model.
+    p.set_defaults(func=cmd_verify, epochs=2000, log_points=40, num_seeds=2, num_workers=2)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

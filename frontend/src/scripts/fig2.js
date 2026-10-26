@@ -2,9 +2,11 @@
  *
  * This figure plots `runs`, not `aggregated`, on purpose. Phase 1 measured that
  * the fitting phase is seed-dependent and largely cancels in the ensemble mean
- * (45/50 seeds show Layer 7 rising, by a median 0.94 bits, but the mean rises only
- * ~0.49) - so the characteristic right-then-left arc is a per-seed phenomenon and
- * an averaged version of this figure would hide its subject.
+ * The paper's Figure 2 is itself a scatter of 50 networks, and the per-seed spread
+ * is part of its content. (Under an earlier configuration the mean also actively
+ * destroyed the subject: the arc was over in two epochs and cancelled to +0.49
+ * bits. That is no longer so - it survives averaging at +1.39 - but the scatter
+ * is still the faithful figure.)
  */
 import { line } from "d3-shape";
 import { scaleLinear } from "d3-scale";
@@ -40,6 +42,11 @@ load("data/infoplane.json").then((data) => {
   state.visible = d.layers.map(() => true);
   document.getElementById("provenance").textContent = provenance(d);
   document.getElementById("binsnote").textContent = String(d.meta.bins);
+  // Written from the data, not hardcoded: the layer count is a property of the run
+  // (--widths), and a stale "7 layers x 50 seeds" here outlived two architectures.
+  document.getElementById("markcount").textContent =
+    `${d.layers.length * d.nSeeds} marks: ${d.layers.length} layers \u00d7 ${d.nSeeds} seeds. ` +
+    "Large labelled marks are the ensemble mean per layer.";
 
   legend(document.getElementById("legend"), d.layers.map(short), {
     mark: "dot",
@@ -133,8 +140,8 @@ function build(width, scrub) {
     .attr("class", (li) => `dot ${lclass(li)}`)
     .attr("r", 6.5);
 
-  // Direct labels on the seven ensemble means only - selective by design. A value
-  // beside all 350 marks would be unreadable; the tooltip and table carry the rest.
+  // Direct labels on the ensemble means only - selective by design. A value
+  // beside every mark would be unreadable; the tooltip and table carry the rest.
   const meanLabels = meanLayer
     .selectAll("text")
     .data(d.layers.map((_, li) => li))

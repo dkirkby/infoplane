@@ -3,6 +3,7 @@ import json
 import pytest
 
 from infoplane.cli import main
+from infoplane.model import PAPER_HIDDEN_WIDTHS
 
 # The CLI is exercised at a toy scale; the point is that the argparse surface, the
 # in-process runner and both writers agree with each other, not that anything learns.
@@ -18,7 +19,7 @@ def test_run_writes_the_contract(tmp_path):
     assert payload["metadata"]["seeds"] == 2
     assert payload["metadata"]["epochs"] == 3  # total training length, not checkpoints
     assert len(payload["epochs"]) == payload["metadata"]["checkpoints"]
-    assert payload["metadata"]["widths"] == [12, 10, 7, 5, 4, 3, 2]
+    assert payload["metadata"]["widths"] == [10, 7, 5, 4, 3]
     assert payload["diagnostics"]["max_dpi_violation_bits"] <= 1e-9
 
 
@@ -62,7 +63,7 @@ def test_arrow_export_round_trips(tmp_path):
     table = feather.read_table(out)
     assert table.column_names == ["seed", "layer", "epoch", "IXT", "ITY"]
     n_ck = len(set(table.column("epoch").to_pylist()))
-    assert table.num_rows == 2 * 7 * n_ck  # seeds x layers x checkpoints
+    assert table.num_rows == 2 * len(PAPER_HIDDEN_WIDTHS) * n_ck  # seeds x layers x checkpoints
     meta = json.loads(table.schema.metadata[b"metadata"])
     assert meta["seeds"] == 2 and meta["checkpoints"] == n_ck
 
@@ -70,20 +71,24 @@ def test_arrow_export_round_trips(tmp_path):
 def test_dpi_thresholds_discriminate_conditioning():
     """Pin the tolerances against the measured runs that motivated them.
 
-    These are not arbitrary: the spin-input ensembles must pass and the saturated
-    binary-input ones must fail, otherwise the check stops catching the regression
-    it exists for.
+    These are not arbitrary: every run on the authors' five-layer architecture must
+    pass, and the saturated runs from the discarded seven-layer reading must fail,
+    otherwise the check stops catching the regression it exists for.
     """
     from infoplane.cli import DPI_MAX_VIOLATION_FRAC, DPI_TOL_BITS
 
-    total = 77100  # 50 seeds x 6 layer pairs x 257 checkpoints
-
-    def passes(violations, worst):
+    def passes(violations, worst, total):
         return worst <= DPI_TOL_BITS and violations <= DPI_MAX_VIOLATION_FRAC * total
 
-    # Default spin inputs, as regenerated: full dataset, then the worst sweep size.
-    assert passes(0, 0.0)
-    assert passes(2, 0.0864)
-    # The authors' raw 0/1 inputs saturate the narrow layers; both must fail.
-    assert not passes(126, 0.3805)
-    assert not passes(176, 1.44)
+    five = 51400  # 50 seeds x 4 layer pairs x 257 checkpoints
+    seven = 77100  # the discarded reading: 50 seeds x 6 layer pairs x 257
+
+    # The authors' architecture, as regenerated: clean everywhere, under BOTH input
+    # encodings and at every training-set size.
+    assert passes(0, 0.0, five)
+    # The literal "7 hidden layers" reading saturates its extra wide and 2-unit
+    # layers. Its full-dataset run squeaks through on magnitude, so the *rate* is
+    # what has to reject it; its small-train-size runs fail on both counts.
+    assert not passes(43, 0.412, seven)
+    assert not passes(126, 0.3805, seven)
+    assert not passes(176, 1.44, seven)

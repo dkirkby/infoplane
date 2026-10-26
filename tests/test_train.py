@@ -38,8 +38,10 @@ def test_log_schedule_is_sorted_unique_and_bounded():
 
 def test_model_shape_and_activation_range():
     net = InfoPlaneNet(12, PAPER_HIDDEN_WIDTHS, n_out=1, seed=3)
-    assert len(net.hidden) == 7
-    assert net.layer_names() == [f"Layer {i}" for i in range(1, 8)]
+    n = len(PAPER_HIDDEN_WIDTHS)
+    assert n == 5  # the paper's 12-10-7-5-4-3-2 read as input + 5 hidden + output
+    assert len(net.hidden) == n
+    assert net.layer_names() == [f"Layer {i}" for i in range(1, n + 1)]
     acts = net.activations(torch.rand(64, 12) * 2 - 1)
     assert [a.shape[1] for a in acts] == list(PAPER_HIDDEN_WIDTHS)
     assert all(a.abs().max() <= 1.0 for a in acts)  # the binning support
@@ -61,11 +63,15 @@ def test_construction_is_seeded_and_leaves_global_rng_untouched():
 
 # The training tests use `quadric` rather than `var_u`: it needs no download, and
 # being deterministic and noiseless it converges predictably in a few hundred epochs.
+# They also override the optimiser: the defaults are the authors' (Adam at 4e-4),
+# chosen to reproduce the paper's *epoch axis*, which deliberately takes thousands
+# of epochs.  These tests only need a converged network, so they use the fast SGD
+# setting instead of paying for that.
 @pytest.fixture(scope="module")
 def short_run():
     torch.set_num_threads(1)
     dataset = make_quadric()
-    cfg = TrainConfig(epochs=400, log_points=25, lr=0.4)
+    cfg = TrainConfig(epochs=400, log_points=25, optimizer="sgd", lr=0.4)
     return dataset, cfg, run_seed(dataset, cfg, seed=0)
 
 
@@ -74,7 +80,7 @@ def test_short_run_learns_the_rule(short_run):
     assert r.train_acc[0] < 0.75  # untrained
     assert r.train_acc[-1] > 0.95
     assert r.train_loss[-1] < 0.1
-    assert r.n_train == int(round(0.85 * 4096))
+    assert r.n_train == int(round(TrainConfig.train_frac * 4096))
 
 
 def test_information_is_within_its_bounds(short_run):
@@ -129,7 +135,7 @@ def test_ensemble_export_round_trips(tmp_path):
     payload = build_payload(dataset, cfg, results)
 
     assert payload["bounds"]["H_X"] == pytest.approx(12.0)
-    assert payload["layers"] == [f"Layer {i}" for i in range(1, 8)]
+    assert payload["layers"] == [f"Layer {i}" for i in range(1, len(cfg.widths) + 1)]
     assert [run["seed"] for run in payload["runs"]] == [0, 1]
     n_ck = payload["metadata"]["checkpoints"]
     assert len(payload["epochs"]) == n_ck
@@ -140,9 +146,9 @@ def test_ensemble_export_round_trips(tmp_path):
     agg = payload["aggregated"]["Layer 1"]
     assert len(agg["IXT_mean"]) == n_ck and len(agg["IXT_std"]) == n_ck
     # Seeds that differ must leave a non-zero spread somewhere for Figure 4's band.
-    # (Not in Layer 1, which sits pinned at H(X) = 12 bits -- 12 units at 30 bins
+    # (Not in Layer 1, which sits pinned at H(X) = 12 bits -- 10 units at 30 bins
     # resolve all 4096 patterns -- but in the narrow layers that actually compress.)
-    deep = payload["aggregated"]["Layer 7"]
+    deep = payload["aggregated"][payload["layers"][-1]]
     assert max(v for v in deep["IXT_std"] if v is not None) > 0
 
     out = tmp_path / "e.json"

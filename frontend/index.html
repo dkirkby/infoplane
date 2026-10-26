@@ -25,16 +25,18 @@
       <h1>Opening the black box, interactively</h1>
       <p class="lede">
         A replication of the information-plane dynamics in <em>Opening the Black Box of Deep
-        Neural Networks via Information</em> (Shwartz-Ziv &amp; Tishby, 2017): a 12-10-7-5-4-3-2
-        tanh network trained on the authors' own 12-bit dataset, with the mutual information
-        of every hidden layer measured at 257 log-spaced epochs across 50 random seeds.
+        Neural Networks via Information</em> (Shwartz-Ziv &amp; Tishby, 2017): the authors'
+        tanh network trained on their own 12-bit dataset, with the mutual information of
+        every hidden layer measured at log-spaced epochs across 50 random seeds. Settings
+        follow their released code, which differs from the paper's prose in several
+        places.
       </p>
 
       <div class="tiles" id="tiles"></div>
 
       <ul class="figlist">
         <li><a href="./fig2.html"><span class="k">Figure 2</span><strong>The plane, seed by seed</strong>
-          <p>Every layer of every seed at one epoch. Scrub the epoch; hover to trace one seed through all seven layers.</p></a></li>
+          <p>Every layer of every seed at one epoch. Scrub the epoch; hover to trace one seed through every layer.</p></a></li>
         <li><a href="./fig3.html"><span class="k">Figure 3</span><strong>Fitting against compression</strong>
           <p>Mean trajectories with the epoch marked, beside the layer ordering that the data processing inequality demands.</p></a></li>
         <li><a href="./fig4.html"><span class="k">Figure 4</span><strong>Information over time</strong>

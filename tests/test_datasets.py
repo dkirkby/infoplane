@@ -21,10 +21,9 @@ var_u_only = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def var_u():
-    """The authors' file with its raw 0/1 inputs, for tests about its structure.
+    """The authors' file with its raw 0/1 inputs, which is also the pipeline default.
 
-    The pipeline defaults to `spin` (-+1) inputs instead; see
-    test_var_u_default_encoding_is_spin and the README for why.
+    See test_var_u_default_encoding_is_binary for why the default is theirs again.
     """
     if not DEFAULT_VAR_U_PATH.exists():
         pytest.skip(f"{DEFAULT_VAR_U_PATH} not fetched")
@@ -103,13 +102,16 @@ def test_var_u_labels_are_exactly_a_thresholded_quadratic_form(var_u):
 
 
 @var_u_only
-def test_var_u_default_encoding_is_spin():
-    # The labels and patterns are identical either way -- the encoding is a network
-    # input scaling, not part of the dataset -- but `spin` keeps tanh off its rails
-    # so the binning estimator stays well conditioned.
+def test_var_u_default_encoding_is_binary():
+    # The default is the authors' raw 0/1 inputs. `spin` (-+1) is an affine
+    # reparameterisation offered as a non-default: identical labels and patterns,
+    # different dynamics, so runs must never be compared across encodings.
     d = load_matfile(DEFAULT_VAR_U_PATH)
-    assert set(np.unique(d.X).tolist()) == {-1.0, 1.0}
-    assert np.array_equal(d.Y, load_matfile(DEFAULT_VAR_U_PATH, encoding="binary").Y)
+    assert set(np.unique(d.X).tolist()) == {0.0, 1.0}
+    spin = load_matfile(DEFAULT_VAR_U_PATH, encoding="spin")
+    assert set(np.unique(spin.X).tolist()) == {-1.0, 1.0}
+    assert np.array_equal(d.Y, spin.Y)
+    assert np.array_equal(spin.X, 2.0 * d.X - 1.0)
 
 
 @var_u_only
@@ -144,7 +146,8 @@ def test_loader_rejects_malformed_files(tmp_path):
 
 
 def test_quadric_encodings_and_errors():
-    assert set(np.unique(make_quadric(encoding="binary").X).tolist()) == {0.0, 1.0}
+    assert set(np.unique(make_quadric(encoding="spin").X).tolist()) == {-1.0, 1.0}
+    assert set(np.unique(make_quadric().X).tolist()) == {0.0, 1.0}
     with pytest.raises(ValueError):
         make_quadric(encoding="nope")
 

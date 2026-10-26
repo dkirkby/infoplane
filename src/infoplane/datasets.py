@@ -76,16 +76,23 @@ class Dataset:
 def _encode(bits: np.ndarray, encoding: str) -> np.ndarray:
     """Map 0/1 patterns to the network's input range.
 
-    ``binary`` keeps the authors' 0/1 inputs; ``spin`` centres them to ``-+1``,
-    which matches the ``tanh`` range.  The two are affinely equivalent to a layer
-    with a bias, so they do not change what is representable or the labels -- this
-    is a training detail, not part of anyone's dataset -- but they change the
-    dynamics, and with them the *measurement*: all-non-negative inputs drive the
-    narrow layers into ``tanh`` saturation, which collapses bins and makes the
-    estimator violate the data processing inequality (one seed: 7 violations up to
-    0.381 bits under ``binary``, none under ``spin``, with Layer 5 reading 2.47
-    bits instead of 4.70).  ``spin`` is therefore the default despite the authors
-    having used 0/1.
+    ``binary`` keeps the authors' raw 0/1 inputs and is the default; ``spin``
+    centres them to ``-+1``, which matches the ``tanh`` range.  The two are
+    affinely equivalent to a layer with a bias, so they change neither the labels
+    nor what is representable -- this is a training detail, not part of anyone's
+    dataset -- but they do change the dynamics and with them the measurement.
+
+    This default was ``spin`` for a while, on the evidence that ``binary`` drove
+    the narrow layers into ``tanh`` saturation and made the estimator violate the
+    data processing inequality (126 of 77,100 measurements, up to +0.381 bits).
+    That turned out to be an artifact of a *different* bug: the network then had
+    seven hidden layers, from reading the paper's "12-10-7-5-4-3-2" literally
+    instead of as input + five hidden + output.  With the authors' five-layer
+    network both encodings give 0 violations in 51,400 measurements, so the reason
+    to deviate is gone and the default follows the authors again.  ``spin`` still
+    trains slightly better (test 0.9779 vs 0.9682) and compresses further, but
+    "our variant shows more of the phenomenon" is not a reason to prefer it in a
+    replication.
     """
     bits = bits.astype(np.float32, copy=False)
     if encoding == "binary":
@@ -106,7 +113,7 @@ def _all_bit_patterns(n_bits: int) -> np.ndarray:
 
 
 def make_quadric(
-    n_bits: int = N_TOY_BITS, geometry: str = "circle", encoding: str = "spin"
+    n_bits: int = N_TOY_BITS, geometry: str = "circle", encoding: str = "binary"
 ) -> Dataset:
     """A synthetic deterministic rule -- **not** the paper's problem; use ``var_u``.
 
@@ -180,7 +187,7 @@ def fetch_var_u(dest: str | Path = DEFAULT_VAR_U_PATH, force: bool = False) -> P
     return dest
 
 
-def load_matfile(path: str | Path, encoding: str = "spin") -> Dataset:
+def load_matfile(path: str | Path, encoding: str = "binary") -> Dataset:
     """Load the authors' ``var_u.mat`` (4096x12 ``F`` of 0/1, ``y`` of labels)."""
     from scipy.io import loadmat
 
@@ -237,7 +244,7 @@ def build_dataset(
     path: str | Path | None = None,
     n_samples: int = 4096,
     seed: int = 0,
-    encoding: str = "spin",
+    encoding: str = "binary",
 ) -> Dataset:
     """Dispatch used by the CLI's ``--dataset`` flag."""
     if kind == "quadric":

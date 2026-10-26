@@ -28,12 +28,95 @@ uv run infoplane sweep --train-sizes 50,100,500,4000 --outdir data/trainsize
 
 | Flag | Why |
 | --- | --- |
-| `--lr 0.1` | **Recommended for Figure 2.** Moves Layer 7's I(X;T) peak from epoch 1 to epoch 26, so the fitting arc spans many more checkpoints; the rise is larger (1.13 vs 0.88 bits) and test accuracy slightly better (0.9774), with the DPI still clean. |
-| `--bins 10 / 100` | The binning estimator is sensitive to this; sweeping it shows how much of the measured compression is bin-dependent. |
+| `--bins 10 / 120` | The binning estimator is sensitive to this; sweeping it shows how much of the measured compression is bin-dependent. |
 | `--mi-on train` | Measure the information plane on the training subset instead of all 4096 patterns. |
-| `--input-encoding binary` | The authors' raw 0/1 inputs instead of the default ±1. Reproduces their setup, at a real cost to the measurement — see below. |
+| `--input-encoding spin` | Inputs centred to ±1 instead of the authors' raw 0/1. Trains to slightly better test accuracy but shows a markedly weaker fitting phase — see below. |
+| `--optimizer sgd --lr 0.4` | Fits in ~2 epochs. Useful when you only need a converged network (the tests use it); **useless for the figures**, because it collapses the entire epoch axis. |
 | `--dataset quadric` | A synthetic deterministic rule, offline and deliberately harder — see below. Not the paper's problem. |
 | `--format arrow` | Long-format Feather instead of JSON, for large ensembles (needs `uv sync --extra arrow`). |
+
+## What the paper says vs what the authors ran
+
+Three sources disagree about this experiment: the paper's text, the released code
+([IDNNs](https://github.com/ravidziv/IDNNs)), and the released data (`var_u.mat`).
+**Where they conflict, this project follows the code and the file**, on the grounds that
+those are what actually produced the figures. Every such choice is listed here.
+
+| Setting | Paper text | IDNNs code | Here |
+| --- | --- | --- | --- |
+| Optimizer | "trained using SGD" (§4.1) | `tf.train.AdamOptimizer` (`networks/model.py`) | **Adam** |
+| Learning rate | not stated | `0.0004` | **4e-4** |
+| Batch size | not stated ("the samples batches") | `512` | **512** |
+| Epochs | 9000 (Fig. 2 caption) | `num_epochs` default `8000` | 9000 |
+| Training fraction | 85% (§5.1, for Fig. 2) | `inds` default `[80]` | **80%** |
+| Architecture | "up to 7 fully connected hidden layers, with widths 12-10-7-5-4-3-2" (§4.1) | hidden `[10, 7, 5, 4, 3]`, 12-dim input, 2-way softmax output | **5 hidden layers 10-7-5-4-3** — see below |
+| Output layer | tanh "shifted to a sigmoidal function in the final layer" (§4.1) | 2-unit softmax | 1-unit sigmoid |
+| Repeats | 50 randomized initializations (§4.3) | `num_of_repeats` default `1` | 50 |
+| Binning | 30 intervals in [-1, 1] (§4.2) | `num_of_bins` default `30` | 30 ✓ |
+| Activation | tanh (§4.1) — though §4.2 calls it `arctan` | `tf.nn.tanh` | tanh ✓ |
+| Input values | "12 binary inputs" (§4.1) | raw 0/1 | ±1, see the deviations list |
+| Labels | stochastic: `p(y=1|x) = σ(γ(f(x) − θ))`, γ "high enough to keep I(X;Y) ≈ 0.99 bits" (§4.1) | — | deterministic, as the file is |
+
+Three of these are worth more than a table row.
+
+**SGD vs Adam decides the epoch axis, which is the figure's entire content.** The paper's
+argument is about *when* things happen — a fast ERM phase of "a few hundred epochs" and a
+compression phase of thousands — so the horizontal axis of Figures 3-5 and the "400 epochs"
+in Figure 2's caption are results, not bookkeeping. They are also pure consequences of the
+optimizer settings. Train this network with SGD at lr 0.4 and it fits in ~2 epochs: the
+entire ERM phase falls between the first two log-spaced checkpoints and the figures show
+nothing but compression. At the authors' Adam/4e-4/512 the phase structure reproduces,
+including the 400-epoch snapshot. This is the one setting you cannot substitute a
+"reasonable equivalent" for.
+
+There is an irony here worth noticing, since the paper does not: §5.2 explains compression
+as a property of *SGD's* gradient noise — a drift phase with high gradient SNR giving way
+to a diffusion phase where "the weights change essentially as Weiner processes." Adam
+rescales each coordinate by a running estimate of its gradient's second moment, which
+changes exactly the noise structure that argument depends on. The phenomenon still appears
+under Adam, which is evidence *for* its robustness, but the mechanism offered for it is
+not the mechanism that was run.
+
+**The architecture string is ambiguous, and the literal reading is wrong.**
+"12-10-7-5-4-3-2" appears in §4.1 as "7 fully connected hidden layers". But Figure 4's
+caption writes its network as `input=12-10-8-6-4-2-1=output` — the same seven-number
+format, with the first number explicitly the input and the last explicitly the output.
+Under that convention "12-10-7-5-4-3-2" means a 12-dim input, **five** hidden layers of
+10-7-5-4-3, and a 2-unit output. Four things agree: the code's default
+(`select_network_arch('1') -> [10, 7, 5, 4, 3]`), Figure 4's caption, §4.1's own "layer 1
+is the hidden layer closest to the input and the highest is **the output layer**" (so the
+last entry is not a hidden layer), and Figure 2 itself, which shows about five or six
+clusters rather than seven.
+
+This repository originally implemented the literal reading — 7 hidden layers of
+12-10-7-5-4-3-2 plus a separate sigmoid output — and it was measurably worse in two
+specific ways, both of which are worth knowing about because they are how the mistake
+announced itself:
+
+- **Three layers pinned at the ceiling.** Layers 1-3 sat at `I(X;T) = H(X) = 12` bits from
+  initialisation onward and never moved, because a 12-wide, a 10-wide and a 7-wide tanh
+  layer at 30 bins all resolve the 4096 patterns exactly. The paper's figures have *one*
+  such pinned layer. Three immovable trajectories out of seven is a third of the figure
+  saying nothing.
+- **Seeds got stuck.** The extra 2-unit tanh hidden layer is a hard bottleneck to optimise
+  through. Under the literal reading 22 of 50 seeds finished below 0.99 train accuracy and
+  8 below 0.95, clustered near 0.92, and training for 30,000 epochs instead of 9,000 barely
+  moved it (0.9833 vs 0.9806 mean train accuracy, still 2 of 8 seeds stuck at ~0.93). That
+  is a trapped optimisation, not undertraining.
+
+The five-layer reading is now the default. One difference remains: the authors *measure*
+the output layer too ("the highest is the output layer"), so their figures have six points
+per network where ours have five. Measuring a single sigmoid unit would need its own
+binning support — `mi.py` bins on `[-1, 1]` for tanh — so it is left out rather than done
+wrongly.
+
+**The released labels are deterministic; the paper describes them as noisy.** §4.1 defines
+the rule as a sigmoid of `f(x) − θ` with gain γ, i.e. genuinely stochastic, and says γ was
+set to keep `I(X;Y) ≈ 0.99` bits. The file contains hard 0/1 labels that are exactly a
+thresholded quadratic form in the 12 bits (LP-verified — see below), so `I(X;Y) = H(Y) =
+0.9992` bits exactly. The paper's 0.99 figure is reproduced, but by class imbalance
+(`p(y=1) = 0.5171`) rather than by label noise: γ was evidently taken to the hard-threshold
+limit. Anything built on the assumption that these labels are noisy will be wrong.
 
 ## The dataset
 
@@ -137,7 +220,7 @@ until `infoplane fetch` and `infoplane run` have produced the exports.
 | Page | What it shows |
 | --- | --- |
 | `index.html` | Headline numbers, train/test accuracy against epoch, and the caveats below. |
-| `fig2.html` | The plane with one mark per (seed, layer) at a scrubbed epoch; hovering traces one seed through all seven layers. |
+| `fig2.html` | The plane with one mark per (seed, layer) at a scrubbed epoch; hovering traces one seed through all five layers. |
 | `fig3.html` | Mean trajectories over the whole run with the scrubbed epoch marked, beside bits-by-depth where the DPI ordering is visible. |
 | `fig4.html` | Both quantities against epoch on a log axis, with ±1σ bands on demand and a shared crosshair. |
 | `fig5.html` | Four training-set sizes as small multiples, each panel lazily fetched. |
@@ -175,96 +258,121 @@ a guess. Adding it would be a Phase 1 change first.
 
 ## Caveats that matter for Phase 2
 
-**Input encoding changes the measurement, not just the dynamics.** The authors fed their
-0/1 patterns in raw. Those are all non-negative, which pushes the narrow layers into `tanh`
-saturation, collapses bins, and breaks the estimator where it matters most. On the
-ensemble's worst seed (18; the bin table below uses seed 0, so its absolute values differ):
+**Input encoding: the authors' 0/1 is the default, and the deviation was a mistake.** The
+encoding is a network *input scaling*, not part of anyone's dataset — labels and patterns
+are identical either way, and the two are affinely equivalent to a layer with a bias — but
+it changes the dynamics and with them the measurement.
 
-| `--input-encoding` | `--bins` | DPI violations | max violation | Layer 5 final I(X;T) | test acc |
-| --- | --- | --- | --- | --- | --- |
-| binary | 30 | 7 / 1542 | +0.381 bits | 2.47 bits | 0.9691 |
-| binary | 60 | 2 / 1542 | +0.124 | 3.15 | 0.9691 |
-| binary | 120 | 2 / 1542 | +0.117 | 3.61 | 0.9691 |
-| **spin** (default) | 30 | **0 / 1542** | **0.000** | **4.70** | 0.9772 |
+This default was `spin` (±1) for a while, on the evidence that the authors' 0/1 inputs
+drove the narrow layers into `tanh` saturation and made the estimator violate the data
+processing inequality: 126 of 77,100 measurements, up to +0.381 bits. That evidence was
+real but misattributed. It was an artifact of the *architecture* bug described above —
+seven hidden layers instead of five, including a 12-wide and a 7-wide layer that saturate.
+On the authors' five-layer network both encodings are clean:
 
-Layer 5 reads 2.47 bits under `binary` and 4.70 under `spin` — nearly a factor of two on
-the same network and the same data. The encoding is a network *input scaling*, not part of
-anyone's dataset (labels and patterns are identical either way), so `spin` is the default
-here despite the authors having used 0/1: it is the only setting that satisfies the data
-processing inequality exactly at the paper's 30 bins. Use `--input-encoding binary` to
-reproduce their exact setup, and expect the narrow layers to be under-measured if you do.
+| `--input-encoding` | DPI violations | final test acc | L3 / L4 / L5 final I(X;T) | seeds whose L5 rises before compressing |
+| --- | --- | --- | --- | --- |
+| **binary** (default, the authors') | **0 / 51,400** | 0.9682 | 11.62 / 7.26 / 2.16 bits | **50 / 50**, median +1.51 bits |
+| spin | 0 / 51,400 | 0.9779 | 9.79 / 3.45 / 1.09 bits | 44 / 50, median +0.51 bits |
 
-**The fitting phase is brief, and much clearer per-seed than in the mean.** With the
-default settings it is over within the first couple of epochs: 45 of 50 seeds show Layer 7
-rising before it compresses, by a median of 0.94 bits and up to 2.49, with the peak at
-epoch 1-2 (Layer 6: 40/50, median 0.78; Layer 5: 32/50, median 0.39; layers 1-3 are flat
-at the ceiling). The ensemble mean does rise, but only by +0.49 bits in Layer 7 — a fifth
-of the largest single-seed rise — because seeds peak at slightly different epochs and
-cancel.
+`spin` reaches about a point higher test accuracy and compresses considerably further, and
+on that basis it looked like the better setting. It is not: compression magnitude is the
+thing being replicated, so preferring our own variant because it shows more of the
+phenomenon is exactly backwards. And the fitting phase — the paper's actual subject — is
+*clearer* under the authors' encoding, not weaker. Never compare runs made with different
+encodings.
 
-So Figure 2 should plot `runs`, not `aggregated`, and its epoch scrubber needs fine
-resolution over the first ~10 epochs, where almost all of the rightward motion happens.
-`--lr 0.1` slows fitting and spreads that arc over many more checkpoints — Layer 7's peak
-moves from epoch 1 to epoch 26, and the median rise grows from 0.88 to 1.13 bits — at no
-cost to accuracy (test 0.9774) or to the DPI check (0/12,336). Worth doing for the figure. Figure 4's
-mean ± 1σ bands are the right place for `aggregated`.
+**The fitting phase is visible in the ensemble mean.** Under the defaults, every one of the
+50 seeds shows Layer 5's `I(X;T)` rising before it compresses, by a median of 1.51 bits,
+peaking around epoch 42; Layer 4 rises in 47 of 50 seeds by a median 1.16 bits, peaking
+around epoch 46. Because the seeds peak at similar epochs the rise survives averaging —
+the ensemble mean rises +1.39 bits in Layer 5 and +0.79 in Layer 4 — so the characteristic
+right-then-left arc is in `aggregated` as well as in `runs`.
 
-**The widest layers cannot show a fitting phase at all.** Layers 1-2 sit pinned at
-`I(X;T) = H(X) = 12` bits from initialisation onward: 30 bins across 10 or more `tanh`
-units resolve all 4096 patterns, so the measurement is saturated at its ceiling and has
-nowhere to rise.
+This was not true of the earlier configuration, and the difference is worth keeping in
+mind when reading older notes: with SGD at lr 0.4 the whole arc was over within two epochs
+and largely cancelled in the mean (+0.49 bits). Figure 2 still plots `runs` rather than
+`aggregated`, because the per-seed spread is itself informative and the paper's Figure 2
+is explicitly a scatter of 50 networks — but it is no longer the case that averaging
+destroys the subject.
+
+**The widest layer cannot show a fitting phase at all.** Layer 1 sits pinned at
+`I(X;T) = H(X) = 12` bits from initialisation onward: 30 bins across 10 `tanh` units
+resolve all 4096 patterns, so the measurement is saturated at its ceiling and has nowhere
+to rise. Layer 2 (7 units) is nearly as pinned, moving 0.02 bits over the whole run. This
+is a property of the estimator, not of the network, and the paper's own figures show the
+same thing — one or two trajectories parked at the right-hand edge. It is also why the
+seven-layer misreading was so costly: it produced *three* immovable trajectories out of
+seven.
 
 **The absolute bit values are bin-dependent; only the shape is robust.** Re-measuring one
-`var_u` seed (seed 0) under the defaults at several bin counts moves the mid layers a long way,
-while leaving the deepest layer and the *shape* of every trajectory intact:
+`var_u` seed (seed 0) under the defaults at several bin counts moves the mid layers a long
+way, while leaving the *shape* of every trajectory intact:
 
-| `--bins` | L4 final | L5 final | L6 final | L7 final | DPI violations |
+| `--bins` | L1 final | L2 final | L3 final | L4 final | L5 final | DPI violations |
+| --- | --- | --- | --- | --- | --- | --- |
+| 10 | 11.90 bits | 11.45 | 9.67 | 5.11 | 1.68 | 0 / 1,028 |
+| 15 | 11.98 | 11.88 | 10.90 | 6.14 | 1.81 | 0 / 1,028 |
+| **30** (default, the paper's) | 12.00 | 12.00 | 11.81 | 7.76 | 2.04 | 0 / 1,028 |
+| 60 | 12.00 | 12.00 | 11.98 | 9.02 | 2.25 | 0 / 1,028 |
+| 120 | 12.00 | 12.00 | 12.00 | 10.02 | 2.45 | 0 / 1,028 |
+
+Layer 4 doubles between 10 and 120 bins (5.11 → 10.02); Layer 5 moves far less
+(1.68 → 2.45). So "Layer 4 compresses to 7.8 bits" is a property of the network *measured
+with 30 bins*, not of the network — the standard objection to the binning estimator
+(Saxe et al., 2018). Note also that which layers read as "pinned at the ceiling" is itself
+a bin-count artifact: at 10 bins no layer reaches 12, at 120 bins three do. The frontend
+states the bin count wherever it puts bits on an axis; `metadata.bins` is in every export
+for that. Never compare runs made with different `--bins`.
+
+**Current numbers under the defaults** (`var_u`, 50 seeds × 9000 epochs, binary inputs,
+30 bins, ~4 min on 8 cores): train accuracy 0.9988, test 0.9682, **0 DPI violations in
+51,400 measurements**. Train accuracy crosses 0.95 at epoch 557 and 0.99 at epoch 2884.
+Ensemble-mean `I(X;T)` compression from peak to epoch 9000, by layer: 0.00, 0.02, 0.11,
+2.74, 5.53 bits. Figure 5 sweep, mean final test accuracy: 0.7681 (N=50), 0.8339 (N=100),
+0.8901 (N=500), 0.9787 (N=4000).
+
+Against the paper's Figure 2 snapshots, the ensemble means (`I(X;T)`, `I(T;Y)`) land at:
+
+| | Layer 1 | Layer 2 | Layer 3 | Layer 4 | Layer 5 |
 | --- | --- | --- | --- | --- | --- |
-| 10 | 6.23 bits | 3.08 | 1.52 | 1.03 | 0 / 1542 |
-| 15 | 7.17 | 4.03 | 1.81 | 1.04 | 0 / 1542 |
-| 30 (default, the paper's) | 8.50 | 5.38 | 2.89 | 1.06 | 0 / 1542 |
-| 60 | 9.59 | 6.38 | 3.30 | 1.15 | 0 / 1542 |
-| 120 | 10.50 | 7.52 | 3.95 | 1.32 | 0 / 1542 |
+| epoch 400 (paper's center panel) | 12.00, 1.00 | 12.00, 1.00 | 11.58, 0.98 | 8.81, 0.92 | 5.12, 0.83 |
+| epoch 9000 (paper's right panel) | 12.00, 1.00 | 11.98, 1.00 | 11.62, 1.00 | 7.26, 0.99 | 2.16, 0.97 |
 
-Layer 5 more than doubles between 10 and 120 bins; Layer 7 barely moves. So "Layer 5
-compresses to 5.4 bits" is a property of the network *measured with 30 bins*, not of the
-network — the standard objection to the binning estimator (Saxe et al., 2018). The
-frontend should state the bin count wherever it puts bits on an axis; `metadata.bins` is in
-every export for that. Never compare runs made with different `--bins`.
-
-Note that the inequality stays clean at every bin count here. Bin count moves the
-magnitudes; it is the *input encoding* that determines whether the estimator is well
-conditioned at all.
-
-**Current numbers under the defaults** (50 seeds x 9000 epochs, `spin` inputs, 30 bins):
-train accuracy 1.000, test 0.9734, **0 DPI violations in 77,100 measurements**; mean I(X;T)
-compression by layer 0.00 / 0.07 / 1.10 / 3.86 / 5.06 / 4.74 / 4.03 bits. Figure 5 sweep
-test accuracy: 0.8057 (N=50), 0.8369 (N=100), 0.8725 (N=500), 0.9769 (N=4000).
+which matches the paper's figure cluster for cluster: a spread down the `I(X;T)` axis at
+400 with the deepest layer still short of `I(T;Y) = 1`, then everything at `I(T;Y) ≈ 1` and
+pushed left by 9000.
 
 **The data processing inequality is the measurement's own smoke alarm.** `I(X;T₁) ≥ … ≥
-I(X;T₇)` must hold at every checkpoint. The plug-in binned estimator can invert it even
-when the true quantities are ordered, because binning layer i+1 is not a coarsening of
-binning layer i: when a layer saturates and its bin grid merges patterns that the next
-layer's affine map pulls back apart, the deeper layer's entropy comes out higher. But the
-size of that effect tracks how badly conditioned the measurement is, so it is worth
-watching rather than excusing:
+I(X;T₅)` must hold at every checkpoint. The plug-in binned estimator can invert it even when
+the true quantities are ordered, because binning layer i+1 is not a coarsening of binning
+layer i: when a layer saturates and its bin grid merges patterns that the next layer's
+affine map pulls back apart, the deeper layer's entropy comes out higher. The size of that
+effect tracks how badly conditioned the measurement is, which makes it a useful alarm
+rather than a nuisance.
 
-- `spin` inputs at 30 bins (the default): 0 of 77,100 on the full dataset; worst across the
-  Figure 5 sweep is 2 of 77,100 at +0.086 bits, at N=50.
-- `binary` inputs at 30 bins: 126 of 77,100 measurements (0.16%) up to **+0.381 bits**,
-  clustered at the L4→L5 and L5→L6 transitions — e.g. one seed reading Layer 5 at 2.757
-  bits and Layer 6 at 3.138. That is a 14% error on the layer, and it is what prompted the
-  default to change.
-- small training sizes are worse still (up to +1.44 bits at N=100 under `binary`), because
-  layers saturate hardest there.
+On the authors' architecture it never fires. **0 violations in 51,400 measurements** on the
+full dataset, under both input encodings, and 0 at every training-set size in the Figure 5
+sweep. The runs it *did* fire on were all made with the discarded seven-layer reading,
+whose 12-wide, 7-wide and 2-wide layers saturate:
 
-Finer binning also reduced the violations under `binary` (7 -> 2 -> 2 for 30/60/120 bins on
-the worst seed), which is what first identified them as a saturation artifact rather than a
-bug; under `spin` there is nothing left to reduce.
+| configuration | violations | worst |
+| --- | --- | --- |
+| 5 hidden layers (the authors'), binary or spin | 0 / 51,400 | 0.000 bits |
+| 7 hidden layers, spin, full dataset | 4 / 77,100 | +0.068 bits |
+| 7 hidden layers, spin, `--train-size 500` | 43 / 77,100 | **+0.412 bits** |
+| 7 hidden layers, binary, full dataset | 126 / 77,100 | +0.381 bits |
+| 7 hidden layers, binary, small `--train-size` | — | up to +1.44 bits |
 
-`verify` allows 0.05 bits in under 0.1% of measurements, and every export carries
-`dpi_violations` / `dpi_measurements`. **Check that rate before trusting a run**: a short
-`verify` run is not representative, since the violations appear well into training.
+The lesson is about diagnosis rather than about binning. A violation rate says the
+measurement is badly conditioned; it does not say *which* knob is responsible. Here it was
+blamed on the input encoding, since switching the encoding made it go away, and the real
+cause was two surplus layers. Changing a knob until a symptom disappears is not the same as
+finding what caused it.
+
+`verify` checks a tolerance (0.1 bits) **and** a violation rate (0.01%), and every export
+carries `dpi_violations` / `dpi_measurements`. **Check that rate before trusting a run**: a
+short `verify` run is not representative, since violations appear well into training.
 
 ## Export schema (the Phase 1 → Phase 2 contract)
 
@@ -274,7 +382,7 @@ bug; under `spin` there is nothing left to reduce.
                    checkpoints, generated_utc, infoplane_version },
   "bounds":      { "H_X": 12.0, "H_Y": 0.9992 },     # axis ceilings for the frontend
   "epochs":      [0, 1, 2, ...],                      # the checkpoint epochs
-  "layers":      ["Layer 1", ..., "Layer 7"],
+  "layers":      ["Layer 1", ..., "Layer 5"],   # one per hidden layer
   "runs":        [ { "seed", "n_train", "seconds",
                      "trajectories": { "Layer 1": { "IXT": [...], "ITY": [...] }, ... },
                      "curves":      { "train_loss", "test_loss", "train_acc", "test_acc" } } ],
@@ -295,10 +403,11 @@ writes one such file per training size plus an `index.json`. Prefer additive cha
    12-bit generator cross-verified against the original; the original turned out to be both
    available and not reproducible from the paper's prose, so `var_u.mat` is the default and
    the synthetic rule is demoted to a contrast case.
-2. **Inputs are centred to ±1 by default**, where the authors used raw 0/1. Same labels,
-   same patterns — but 0/1 saturates the narrow layers and makes the binning estimator
-   violate the data processing inequality by up to 0.38 bits. `--input-encoding binary`
-   restores their setup.
+2. **The optimiser settings, architecture and input encoding are the authors' code's, not
+   the paper's prose**, wherever the two disagree — see the comparison section above. This
+   repository briefly deviated on two of them (seven hidden layers; ±1 inputs) and both
+   deviations turned out to be mistakes that were hiding the phenomenon rather than
+   protecting it. `--input-encoding spin` restores the second one if you want to compare.
 3. **`epochs` holds the checkpoint epochs, not all 9000.** The schema sketch listed every
    epoch, but trajectories have one entry per checkpoint, so a 9000-long axis could not be
    zipped against them. `metadata.epochs` keeps the total training length.

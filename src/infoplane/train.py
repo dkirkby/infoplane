@@ -56,23 +56,35 @@ def log_epoch_schedule(total_epochs: int, n_points: int, include_init: bool = Tr
 
 @dataclass
 class TrainConfig:
-    """Everything that defines one run of the pipeline (recorded in the export)."""
+    """Everything that defines one run of the pipeline (recorded in the export).
+
+    The optimiser defaults are the authors' own, taken from IDNNs
+    (``idnns/networks/network_paramters.py`` and ``model.py``): Adam at 4e-4 over
+    batches of 512 with an 80/20 split.  They are not interchangeable with any
+    other fast-converging choice, because the *epoch axis of Figures 2-5 is a
+    hyperparameter*.  Under SGD at lr 0.4 this network fits in ~2 epochs, so the
+    whole fitting phase falls between the first two log-spaced checkpoints and
+    the figures show only compression; under these settings it takes hundreds of
+    epochs and the paper's 400-epoch snapshot reproduces.  Note the paper's text
+    says SGD while the released code uses Adam -- the code is what produced the
+    figures, so that is what we follow.
+    """
 
     dataset: str = "var_u"
     n_bits: int = 12
     geometry: str = "circle"
-    encoding: str = "spin"
+    encoding: str = "binary"
     data_path: str | None = None
     widths: tuple[int, ...] = PAPER_HIDDEN_WIDTHS
     epochs: int = 9000
     log_points: int = 256
     include_init: bool = True
     bins: int = DEFAULT_BINS
-    batch_size: int = 256
-    optimizer: str = "sgd"
-    lr: float = 0.4
+    batch_size: int = 512
+    optimizer: str = "adam"
+    lr: float = 4e-4
     momentum: float = 0.0
-    train_frac: float = 0.85
+    train_frac: float = 0.8
     train_size: int | None = None
     mi_on: str = "all"
     device: str = "cpu"

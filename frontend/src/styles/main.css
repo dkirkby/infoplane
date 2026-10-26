@@ -5,6 +5,10 @@
    Both ramps were generated in OKLCH and validated with the dataviz skill's
    validate_palette.js --ordinal in their own mode: monotone L, every adjacent
    gap >= 0.06, surface-side end clearing 2:1 contrast, hue spread 4 degrees.
+   The default network has FIVE hidden layers, so a default run uses l1..l5 and
+   leaves l6/l7 for runs with a deeper --widths. A prefix is safe because every
+   gate is per-adjacent-pair or on the surface-side end, both preserved by
+   truncation; re-validated as 5 slots, all checks pass in both modes.
    A categorical palette would have been wrong here twice over - these are scatter
    plots, where only three categorical slots clear the all-pairs CVD floor. */
 :root {
