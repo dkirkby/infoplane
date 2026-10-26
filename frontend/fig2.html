@@ -24,7 +24,8 @@
     <main class="wrap">
       <h1>Figure 2 — the information plane, seed by seed</h1>
       <p class="lede">
-        Every mark is one hidden layer of one network at one epoch: how many bits it keeps
+        Every mark is one layer of one network at one epoch — the five hidden layers plus
+        the readout, which the paper counts as the highest layer: how many bits it keeps
         about the input, against how many it keeps about the label. Scrub the epoch to watch
         the layers move right (fitting) and then left (compression). Hover any mark to trace
         that seed through every layer.
@@ -59,7 +60,7 @@
         networks, and the spread is part of what it shows: every seed takes a visibly
         different route to nearly the same destination. The fitting phase does survive
         averaging here — all 50 seeds show the deepest layer rising before it compresses,
-        by a median 1.51 bits, peaking around epoch 42 — so the labelled mean markers tell
+        by a median 1.51 bits, around epoch 88 — so the labelled mean markers tell
         the same story as the cloud. That was not true of an earlier configuration of this
         pipeline, where the arc was over within two epochs and cancelled in the mean.
         Bit values hold for the <span id="binsnote">30</span>-bin estimator; see the Overview.

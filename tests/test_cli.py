@@ -32,7 +32,7 @@ def test_cli_overrides_reach_the_config(tmp_path):
     assert payload["metadata"]["widths"] == [6, 4]
     assert payload["metadata"]["bins"] == 10
     assert payload["metadata"]["optimizer"] == "adam"
-    assert payload["layers"] == ["Layer 1", "Layer 2"]
+    assert payload["layers"] == ["Layer 1", "Layer 2", "Output"]
     assert payload["bounds"]["H_X"] == pytest.approx(8.0)  # 2**8 enumerated patterns
     assert payload["epochs"][0] == 1  # no epoch-0 checkpoint
 
@@ -63,7 +63,8 @@ def test_arrow_export_round_trips(tmp_path):
     table = feather.read_table(out)
     assert table.column_names == ["seed", "layer", "epoch", "IXT", "ITY"]
     n_ck = len(set(table.column("epoch").to_pylist()))
-    assert table.num_rows == 2 * len(PAPER_HIDDEN_WIDTHS) * n_ck  # seeds x layers x checkpoints
+    n_series = len(PAPER_HIDDEN_WIDTHS) + 1  # hidden layers + the measured readout
+    assert table.num_rows == 2 * n_series * n_ck  # seeds x layers x checkpoints
     meta = json.loads(table.schema.metadata[b"metadata"])
     assert meta["seeds"] == 2 and meta["checkpoints"] == n_ck
 
@@ -80,7 +81,7 @@ def test_dpi_thresholds_discriminate_conditioning():
     def passes(violations, worst, total):
         return worst <= DPI_TOL_BITS and violations <= DPI_MAX_VIOLATION_FRAC * total
 
-    five = 51400  # 50 seeds x 4 layer pairs x 257 checkpoints
+    five = 64250  # 50 seeds x 5 series pairs x 257 checkpoints (5 hidden + the readout)
     seven = 77100  # the discarded reading: 50 seeds x 6 layer pairs x 257
 
     # The authors' architecture, as regenerated: clean everywhere, under BOTH input

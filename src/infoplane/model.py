@@ -72,13 +72,44 @@ class InfoPlaneNet(nn.Module):
         return self.readout(x)
 
     @torch.no_grad()
-    def activations(self, x: torch.Tensor) -> list[torch.Tensor]:
-        """Hidden-layer activations, one ``(N, width)`` tensor per hidden layer."""
+    def activations(self, x: torch.Tensor, include_output: bool = False) -> list[torch.Tensor]:
+        """Activations to measure: one ``(N, width)`` tensor per hidden layer.
+
+        ``include_output`` appends the readout as well.  The paper counts it as a
+        layer -- §4.1: "layer 1 is the hidden layer closest to the input and the
+        highest is the output layer" -- and the authors' code measures it without
+        comment, because ``Model.hidden_layers`` appends the final softmax layer to
+        the same list the activations are read from (IDNNs
+        ``idnns/networks/model.py``, and ``network.exctract_activity`` then reads
+        all of them).  It is the most compressed point on every trajectory, so
+        leaving it out drops the left end of the paper's figures.
+        """
         out = []
         for layer in self.hidden:
             x = torch.tanh(layer(x))
             out.append(x)
+        if include_output:
+            out.append(self.output_probs(x))
         return out
 
-    def layer_names(self) -> list[str]:
-        return [f"Layer {i + 1}" for i in range(len(self.hidden))]
+    @torch.no_grad()
+    def output_probs(self, last_hidden: torch.Tensor) -> torch.Tensor:
+        """The readout as a ``(N, n_classes)`` probability vector.
+
+        A single sigmoid unit and a 2-way softmax are the same model, but they are
+        not the same *measurement*: the authors bin both columns of the softmax, so
+        two samples share an output symbol only if ``p`` and ``1 - p`` both land in
+        the same bin.  Returning the pair keeps our binning identical to theirs
+        whichever readout the network was trained with.
+        """
+        logits = self.readout(last_hidden)
+        if self.n_out == 1:
+            p = torch.sigmoid(logits)
+            return torch.cat([p, 1.0 - p], dim=1)
+        return torch.softmax(logits, dim=1)
+
+    def layer_names(self, include_output: bool = False) -> list[str]:
+        names = [f"Layer {i + 1}" for i in range(len(self.hidden))]
+        if include_output:
+            names.append("Output")
+        return names

@@ -65,6 +65,16 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     g.add_argument("--lr", type=float, default=4e-4)
     g.add_argument("--momentum", type=float, default=0.0)
     g.add_argument("--train-frac", type=float, default=0.8)
+    g.add_argument("--split", default="head", choices=("head", "random"),
+                   help="head: the authors' first-N-rows slice, same for every seed "
+                        "(their data_shuffle defaults to shuffle_data=False); "
+                        "random: a per-seed random subset, as the paper describes")
+    g.add_argument("--shuffle-batches", action="store_true",
+                   help="reshuffle minibatches each epoch; the authors cut fixed "
+                        "contiguous batches once and reuse them (default: off)")
+    g.add_argument("--no-measure-output", action="store_true",
+                   help="measure only the hidden layers; by default the readout is "
+                        "measured too, as the paper's highest layer and as IDNNs does")
     g.add_argument("--device", default="cpu",
                    help="cpu (default; fastest for these tiny nets), mps or cuda")
 
@@ -99,6 +109,9 @@ def _config(args: argparse.Namespace) -> TrainConfig:
         lr=args.lr,
         momentum=args.momentum,
         train_frac=args.train_frac,
+        split=args.split,
+        shuffle_batches=args.shuffle_batches,
+        measure_output=not args.no_measure_output,
         mi_on=args.mi_on,
         device=args.device,
     )
@@ -240,7 +253,10 @@ def main(argv: list[str] | None = None) -> int:
     _add_common(p)
     p.add_argument("--train-sizes", default="50,100,500,4000")
     p.add_argument("--outdir", default="data/trainsize")
-    p.set_defaults(func=cmd_sweep)
+    # Random subsets, not the authors' head slice: var_u.mat is ordered by input
+    # pattern, so the first 50 rows are all label 0 and a small head slice is a
+    # single-class training set.  Pass --split head to override.
+    p.set_defaults(func=cmd_sweep, split="random")
 
     p = sub.add_parser("fetch", help="download the authors' var_u.mat (1 KB, checksummed)")
     p.add_argument("--data-path", default=None, help=f"destination (default: {DEFAULT_VAR_U_PATH})")

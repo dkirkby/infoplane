@@ -64,10 +64,16 @@ class TrainConfig:
     other fast-converging choice, because the *epoch axis of Figures 2-5 is a
     hyperparameter*.  Under SGD at lr 0.4 this network fits in ~2 epochs, so the
     whole fitting phase falls between the first two log-spaced checkpoints and
-    the figures show only compression; under these settings it takes hundreds of
-    epochs and the paper's 400-epoch snapshot reproduces.  Note the paper's text
-    says SGD while the released code uses Adam -- the code is what produced the
-    figures, so that is what we follow.
+    the figures show only compression; under these settings it takes tens of
+    epochs.  Note the paper's text says SGD while the released code uses Adam --
+    the code is what produced the figures, so that is what we follow, and the
+    mismatch that remains is in README: our ensemble turns at epoch ~43 where the
+    paper's Figure 4 marks the transition at ~350.
+
+    ``split``, ``shuffle_batches`` and ``measure_output`` likewise default to what
+    IDNNs does rather than to the conventional choice.  See :func:`_split`,
+    :func:`run_seed` and :meth:`InfoPlaneNet.activations` for the lines of their
+    code each one comes from and what it changes.
     """
 
     dataset: str = "var_u"
@@ -86,6 +92,9 @@ class TrainConfig:
     momentum: float = 0.0
     train_frac: float = 0.8
     train_size: int | None = None
+    split: str = "head"
+    shuffle_batches: bool = False
+    measure_output: bool = True
     mi_on: str = "all"
     device: str = "cpu"
 
@@ -112,9 +121,28 @@ class SeedResult:
 
 
 def _split(n: int, cfg: TrainConfig, seed: int) -> tuple[np.ndarray, np.ndarray]:
-    """Per-seed train/test split; the subset is part of the ensemble's variation."""
+    """Train/test split.
+
+    ``split="head"`` is the authors': ``data_shuffle`` takes the *first* ``train_frac``
+    of the file and defaults ``shuffle_data=False``, so every one of their 50
+    "randomized" networks trains on the same deterministic slice and only the
+    weights differ.  That slice is not a random sample -- ``var_u.mat`` is ordered
+    by input pattern read as an integer, so the first 80% is every pattern below
+    3277 (p(y=1) = 0.44) and the held-out 20% is the high end (p(y=1) = 0.84).
+    This contradicts the paper's §3.2, which claims "different random selections of
+    the training samples", and it is the single largest behavioural difference
+    between the paper's description and the code that produced its figures.
+
+    ``split="random"`` is a per-seed random subset, which is what the paper
+    describes and what the training-size sweep has to use: the first 50 patterns
+    of the file are all label 0, so a small head slice is single-class.
+    """
     n_train = cfg.train_size if cfg.train_size is not None else int(round(cfg.train_frac * n))
     n_train = int(np.clip(n_train, 1, n))
+    if cfg.split == "head":
+        return np.arange(n_train), np.arange(n_train, n)
+    if cfg.split != "random":
+        raise ValueError(f"unknown split {cfg.split!r}")
     perm = np.random.default_rng(seed).permutation(n)
     return perm[:n_train], perm[n_train:]
 
@@ -184,7 +212,7 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
     y_symbols = dataset.Y[mi_idx]
 
     checkpoints = log_epoch_schedule(cfg.epochs, cfg.log_points, cfg.include_init)
-    n_layers = len(cfg.widths)
+    n_layers = len(cfg.widths) + int(cfg.measure_output)
     n_ck = len(checkpoints)
     ixt = np.zeros((n_layers, n_ck))
     ity = np.zeros((n_layers, n_ck))
@@ -192,7 +220,7 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
     due = {int(e): i for i, e in enumerate(checkpoints)}
 
     def measure(slot: int) -> None:
-        for li, acts in enumerate(model.activations(Xmi)):
+        for li, acts in enumerate(model.activations(Xmi, include_output=cfg.measure_output)):
             a = acts.detach().cpu().numpy()
             ixt[li, slot], ity[li, slot] = layer_information(a, x_symbols, y_symbols, bins=cfg.bins)
         curves["train_loss"][slot], curves["train_acc"][slot] = _evaluate(model, Xtr, Ytr, loss_fn, binary)
@@ -203,8 +231,14 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
 
     n_train = len(train_idx)
     batch = n_train if cfg.batch_size in (0, None) else min(cfg.batch_size, n_train)
+    # The authors' minibatches are fixed contiguous slices, cut once and reused
+    # every epoch (IDNNs `network.train_network` builds `batch_points` outside the
+    # epoch loop and never reshuffles).  Reshuffling each epoch is the textbook
+    # choice but it is a different noise process, and the compression phase is
+    # supposed to be driven by exactly that noise.
+    fixed_order = torch.arange(n_train, device=device)
     for epoch in range(1, cfg.epochs + 1):
-        order = torch.randperm(n_train, device=device)
+        order = torch.randperm(n_train, device=device) if cfg.shuffle_batches else fixed_order
         for start in range(0, n_train, batch):
             sel = order[start : start + batch]
             opt.zero_grad(set_to_none=True)
@@ -220,7 +254,7 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
     return SeedResult(
         seed=seed,
         epochs=checkpoints,
-        layer_names=model.layer_names(),
+        layer_names=model.layer_names(include_output=cfg.measure_output),
         ixt=ixt,
         ity=ity,
         train_loss=curves["train_loss"],

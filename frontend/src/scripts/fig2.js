@@ -5,7 +5,7 @@
  * The paper's Figure 2 is itself a scatter of 50 networks, and the per-seed spread
  * is part of its content. (Under an earlier configuration the mean also actively
  * destroyed the subject: the arc was over in two epochs and cancelled to +0.49
- * bits. That is no longer so - it survives averaging at +1.39 - but the scatter
+ * bits. That is no longer so - it survives averaging at +1.28 - but the scatter
  * is still the faithful figure.)
  */
 import { line } from "d3-shape";
@@ -42,11 +42,14 @@ load("data/infoplane.json").then((data) => {
   state.visible = d.layers.map(() => true);
   document.getElementById("provenance").textContent = provenance(d);
   document.getElementById("binsnote").textContent = String(d.meta.bins);
-  // Written from the data, not hardcoded: the layer count is a property of the run
-  // (--widths), and a stale "7 layers x 50 seeds" here outlived two architectures.
+  // Written from the data, not hardcoded: the series count is a property of the run
+  // (--widths, --no-measure-output), and a stale "7 layers x 50 seeds" here outlived
+  // two architectures.
+  const nHidden = d.meta.widths.length;
+  const readout = d.layers.length > nHidden ? " + the readout" : "";
   document.getElementById("markcount").textContent =
-    `${d.layers.length * d.nSeeds} marks: ${d.layers.length} layers \u00d7 ${d.nSeeds} seeds. ` +
-    "Large labelled marks are the ensemble mean per layer.";
+    `${d.layers.length * d.nSeeds} marks: ${nHidden} hidden layers${readout} ` +
+    `\u00d7 ${d.nSeeds} seeds. Large labelled marks are the ensemble mean per layer.`;
 
   legend(document.getElementById("legend"), d.layers.map(short), {
     mark: "dot",

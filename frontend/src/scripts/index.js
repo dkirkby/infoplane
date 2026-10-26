@@ -169,11 +169,12 @@ function caveats(d) {
   document.getElementById("caveats").textContent =
     `Every bit value on these pages is a plug-in estimate from binning each tanh unit into ` +
     `${m.bins} intervals over [-1, 1]. That number is not incidental: the same network measured ` +
-    `with 10 bins puts Layer 4 at 5.11 bits and with 120 bins at 10.02, so the shape of a ` +
+    `with 10 bins puts Layer 4 at 5.68 bits and with 120 bins at 11.23, so the shape of a ` +
     `trajectory is robust while its absolute height is a property of the measurement. ` +
     `Hyperparameters follow the authors' released code rather than the paper's text, which ` +
     `disagree: Adam at lr ${m.lr} over batches of ${m.batch_size}, ` +
-    `${m.widths.length} hidden layers of ${m.widths.join("-")}, and inputs ` +
+    `${m.widths.length} hidden layers of ${m.widths.join("-")} plus the readout, ` +
+    `${m.split === "head" ? "the authors' first-" + Math.round(m.train_frac * 100) + "% training slice (not a random sample)" : "a random training subset"}, and inputs ` +
     `${m.encoding === "spin" ? "centred to ±1 (not the authors' raw 0/1)" : "as the authors' raw 0/1"}. ` +
     `The epoch axis is set entirely by those settings, so it is not comparable across runs. ` +
     `I(X;T) is bounded by H(X) = ${d.bounds.H_X} bits and I(T;Y) by H(Y) = ` +
