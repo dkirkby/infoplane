@@ -6,7 +6,9 @@ from infoplane.cli import main
 
 # The CLI is exercised at a toy scale; the point is that the argparse surface, the
 # in-process runner and both writers agree with each other, not that anything learns.
-TINY = ["--num-seeds", "2", "--num-workers", "1", "--epochs", "3", "--log-points", "4", "--quiet"]
+# `quadric` keeps the CLI tests offline; `var_u` would need the authors' download.
+TINY = ["--dataset", "quadric", "--num-seeds", "2", "--num-workers", "1",
+        "--epochs", "3", "--log-points", "4", "--quiet"]
 
 
 def test_run_writes_the_contract(tmp_path):
@@ -48,7 +50,8 @@ def test_sweep_writes_one_file_per_size_plus_an_index(tmp_path):
 
 
 def test_verify_passes_on_its_own_defaults():
-    assert main(["verify", "--quiet", "--num-seeds", "1", "--num-workers", "1"]) == 0
+    assert main(["verify", "--dataset", "quadric", "--quiet",
+                 "--num-seeds", "1", "--num-workers", "1"]) == 0
 
 
 def test_arrow_export_round_trips(tmp_path):
@@ -62,3 +65,25 @@ def test_arrow_export_round_trips(tmp_path):
     assert table.num_rows == 2 * 7 * n_ck  # seeds x layers x checkpoints
     meta = json.loads(table.schema.metadata[b"metadata"])
     assert meta["seeds"] == 2 and meta["checkpoints"] == n_ck
+
+
+def test_dpi_thresholds_discriminate_conditioning():
+    """Pin the tolerances against the measured runs that motivated them.
+
+    These are not arbitrary: the spin-input ensembles must pass and the saturated
+    binary-input ones must fail, otherwise the check stops catching the regression
+    it exists for.
+    """
+    from infoplane.cli import DPI_MAX_VIOLATION_FRAC, DPI_TOL_BITS
+
+    total = 77100  # 50 seeds x 6 layer pairs x 257 checkpoints
+
+    def passes(violations, worst):
+        return worst <= DPI_TOL_BITS and violations <= DPI_MAX_VIOLATION_FRAC * total
+
+    # Default spin inputs, as regenerated: full dataset, then the worst sweep size.
+    assert passes(0, 0.0)
+    assert passes(2, 0.0864)
+    # The authors' raw 0/1 inputs saturate the narrow layers; both must fail.
+    assert not passes(126, 0.3805)
+    assert not passes(176, 1.44)

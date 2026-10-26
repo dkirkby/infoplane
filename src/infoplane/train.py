@@ -58,9 +58,10 @@ def log_epoch_schedule(total_epochs: int, n_points: int, include_init: bool = Tr
 class TrainConfig:
     """Everything that defines one run of the pipeline (recorded in the export)."""
 
-    dataset: str = "toy"
+    dataset: str = "var_u"
     n_bits: int = 12
     geometry: str = "circle"
+    encoding: str = "spin"
     data_path: str | None = None
     widths: tuple[int, ...] = PAPER_HIDDEN_WIDTHS
     epochs: int = 9000

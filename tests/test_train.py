@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from infoplane.datasets import make_toy
+from infoplane.datasets import make_quadric
 from infoplane.export import build_payload, write_json
 from infoplane.mi import entropy
 from infoplane.model import PAPER_HIDDEN_WIDTHS, InfoPlaneNet
@@ -59,10 +59,12 @@ def test_construction_is_seeded_and_leaves_global_rng_untouched():
     assert torch.equal(a, b) and not torch.equal(a, c)
 
 
+# The training tests use `quadric` rather than `var_u`: it needs no download, and
+# being deterministic and noiseless it converges predictably in a few hundred epochs.
 @pytest.fixture(scope="module")
 def short_run():
     torch.set_num_threads(1)
-    dataset = make_toy()
+    dataset = make_quadric()
     cfg = TrainConfig(epochs=400, log_points=25, lr=0.4)
     return dataset, cfg, run_seed(dataset, cfg, seed=0)
 
@@ -115,13 +117,13 @@ def test_dpi_stats_counts_as_well_as_measures():
 
 
 def test_train_size_overrides_the_fraction():
-    dataset = make_toy()
+    dataset = make_quadric()
     cfg = TrainConfig(epochs=2, log_points=3, train_size=100)
     assert run_seed(dataset, cfg, seed=0).n_train == 100
 
 
 def test_ensemble_export_round_trips(tmp_path):
-    dataset = make_toy()
+    dataset = make_quadric()
     cfg = TrainConfig(epochs=3, log_points=4)
     results = run_ensemble(dataset, cfg, [0, 1], num_workers=1, progress=False)
     payload = build_payload(dataset, cfg, results)
@@ -150,7 +152,7 @@ def test_ensemble_export_round_trips(tmp_path):
 
 
 def test_export_rejects_inconsistent_results():
-    dataset = make_toy()
+    dataset = make_quadric()
     a = run_seed(dataset, TrainConfig(epochs=3, log_points=4), seed=0)
     b = run_seed(dataset, TrainConfig(epochs=5, log_points=4), seed=1)
     with pytest.raises(ValueError):

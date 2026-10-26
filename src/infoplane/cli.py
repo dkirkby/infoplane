@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .datasets import build_dataset
+from .datasets import DEFAULT_VAR_U_PATH, build_dataset, fetch_var_u
 from .export import SIZE_WARN_BYTES, build_payload, write_arrow, write_json
 from .model import PAPER_HIDDEN_WIDTHS
 from .runner import run_ensemble
@@ -19,22 +19,36 @@ from .train import TrainConfig, dpi_stats
 
 # The data processing inequality holds exactly for the true quantities, but the
 # plug-in binned estimator can invert it by a hairline: binning layer i+1 is not a
-# coarsening of binning layer i, so when a wide layer saturates and its 30-bin grid
-# merges patterns that the next layer's affine map pulls back apart, the deeper
-# layer's entropy can come out marginally higher.  Measured over 50 seeds x 7 layers
-# x 257 checkpoints this affects 0.006% of measurements by at most 0.05 bits, and it
-# shrinks as --bins grows.  A *large fraction* of violations is a real bug.
-DPI_TOL_BITS = 0.05
-DPI_MAX_VIOLATION_FRAC = 0.001
+# coarsening of binning layer i, so where a layer saturates and its bin grid merges
+# patterns that the next layer's affine map pulls back apart, the deeper layer's
+# entropy can come out marginally higher.
+#
+# The *rate* is the discriminator, not the worst single magnitude, which is noisy.
+# Measured over 50 seeds x 7 layers x 257 checkpoints with the default spin inputs:
+# 0/77100 on the full dataset, worst 2/77100 (+0.086 bits) at --train-size 50. The
+# authors' raw binary inputs saturate instead and give 126/77100 (+0.381 bits), and
+# up to +1.44 bits at small train sizes. These thresholds pass every spin run with
+# margin and fail every binary one, so a regression in conditioning is caught.
+DPI_TOL_BITS = 0.1
+DPI_MAX_VIOLATION_FRAC = 1e-4
 
 
 def _add_common(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("dataset")
-    g.add_argument("--dataset", default="toy", choices=("toy", "matfile", "mnist"))
+    g.add_argument("--dataset", default="var_u",
+                   choices=("var_u", "quadric", "matfile", "mnist"),
+                   help="var_u (default) = the authors' own var_u.mat, fetched on demand; "
+                        "quadric = a synthetic deterministic rule that is NOT the paper's "
+                        "problem, for offline use and contrast")
     g.add_argument("--n-bits", type=int, default=12, help="toy input width (default: 12)")
+    g.add_argument("--input-encoding", default="spin", choices=("binary", "spin"),
+                   help="spin (default) = inputs centred to -+1, which keeps tanh off its "
+                        "rails and satisfies the DPI check; binary = the authors' raw 0/1 "
+                        "inputs, which saturate and make the binning estimator unreliable "
+                        "in the narrow layers")
     g.add_argument("--geometry", default="circle", choices=("circle", "sphere"),
-                   help="latent dimensionality of the toy rule (default: circle = 2D)")
-    g.add_argument("--data-path", default=None, help="var_u_data.mat, or the MNIST root")
+                   help="latent dimensionality of the quadric rule (default: circle = 2D)")
+    g.add_argument("--data-path", default=None, help="var_u.mat, or the MNIST root")
     g.add_argument("--n-samples", type=int, default=4096, help="mnist subsample size")
 
     g = p.add_argument_group("model / training")
@@ -71,6 +85,7 @@ def _config(args: argparse.Namespace) -> TrainConfig:
         dataset=args.dataset,
         n_bits=args.n_bits,
         geometry=args.geometry,
+        encoding=args.input_encoding,
         data_path=args.data_path,
         widths=tuple(int(w) for w in args.widths.split(",") if w.strip()),
         epochs=args.epochs,
@@ -94,6 +109,7 @@ def _dataset(args: argparse.Namespace):
         geometry=args.geometry,
         path=args.data_path,
         n_samples=args.n_samples,
+        encoding=args.input_encoding,
     )
 
 
@@ -162,9 +178,16 @@ def cmd_sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fetch(args: argparse.Namespace) -> int:
+    """Download the authors' var_u.mat so --dataset var_u can be used."""
+    path = fetch_var_u(args.data_path or DEFAULT_VAR_U_PATH, force=args.force)
+    print(f"  {path} ready (SHA-256 verified)")
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     """Fast end-to-end check of the paper's stated invariants on a short run."""
-    from .mi import entropy
+    from .mi import entropy, mutual_information
 
     dataset = _dataset(args)
     cfg = replace(_config(args), epochs=args.epochs, log_points=args.log_points)
@@ -180,12 +203,15 @@ def cmd_verify(args: argparse.Namespace) -> int:
     checks = [
         (f"H(X) = {h_x:.4f} bits (expect {np.log2(dataset.n_samples):.0f} for enumerated inputs)",
          abs(h_x - np.log2(dataset.n_samples)) < 1e-9),
-        (f"H(Y) = {h_y:.4f} bits (expect ~1 for a balanced binary rule)", abs(h_y - 1.0) < 0.02),
+        (f"H(Y) = {h_y:.4f} bits (expect ~1 for a near-balanced binary rule)",
+         abs(h_y - 1.0) < 0.02),
+        (f"the rule is deterministic, so I(X;Y) = H(Y) = {h_y:.4f}",
+         abs(mutual_information(x_sym, dataset.Y) - h_y) < 1e-9),
         (f"I(X;T) <= H(X): max {ixt.max():.4f}", ixt.max() <= h_x + 1e-9),
         (f"I(T;Y) <= H(Y): max {ity.max():.4f}", ity.max() <= h_y + 1e-9),
         (f"data processing inequality: max violation {worst:+.2e} bits "
          f"(tolerance {DPI_TOL_BITS}), {n_viol}/{n_total} measurements affected "
-         f"(tolerance {DPI_MAX_VIOLATION_FRAC:.1%})",
+         f"(tolerance {DPI_MAX_VIOLATION_FRAC:.3%})",
          worst <= DPI_TOL_BITS and n_viol <= DPI_MAX_VIOLATION_FRAC * max(n_total, 1)),
         (f"train loss converges: mean final {np.mean([r.train_loss[-1] for r in results]):.4f}",
          np.mean([r.train_loss[-1] for r in results]) < 0.1),
@@ -213,6 +239,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--train-sizes", default="50,100,500,4000")
     p.add_argument("--outdir", default="data/trainsize")
     p.set_defaults(func=cmd_sweep)
+
+    p = sub.add_parser("fetch", help="download the authors' var_u.mat (1 KB, checksummed)")
+    p.add_argument("--data-path", default=None, help=f"destination (default: {DEFAULT_VAR_U_PATH})")
+    p.add_argument("--force", action="store_true", help="re-download even if present")
+    p.set_defaults(func=cmd_fetch)
 
     p = sub.add_parser("verify", help="short run checking the information-theoretic invariants")
     _add_common(p)
