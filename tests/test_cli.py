@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from infoplane.cli import main
+from infoplane.cli import ARCH_DEFAULT, main
 from infoplane.model import PAPER_HIDDEN_WIDTHS
 
 # The CLI is exercised at a toy scale; the point is that the argparse surface, the
@@ -48,6 +48,35 @@ def test_sweep_writes_one_file_per_size_plus_an_index(tmp_path):
         # The information plane is still measured on all 4096 patterns, so the
         # trajectories stay comparable across sizes.
         assert payload["bounds"]["H_X"] == pytest.approx(12.0)
+
+
+def test_arch_writes_one_file_per_depth(tmp_path):
+    assert main(["arch", *TINY, "--architectures", "10;10,7,5", "--outdir", str(tmp_path)]) == 0
+    index = json.loads((tmp_path / "index.json").read_text())
+    assert [e["n_hidden"] for e in index["architectures"]] == [1, 3]
+    assert [e["widths"] for e in index["architectures"]] == [[10], [10, 7, 5]]
+    for entry in index["architectures"]:
+        payload = json.loads((tmp_path / entry["file"]).read_text())
+        assert payload["metadata"]["widths"] == entry["widths"]
+        assert payload["layers"][-1] == "Output"
+        assert len(payload["layers"]) == entry["n_hidden"] + 1
+
+
+def test_arch_defaults_to_the_authors_six_architectures():
+    # Read off `plot_figures.py`, which feeds its "One hidden layer" ... "Six
+    # hidden layers" grid `ff3_5` ... `ff3_1` -- the `net_type` values that
+    # `select_network_arch` maps to these -- plus a 10,7,5,4,4,3 run. The
+    # five-layer member being the main run's architecture is the check that this
+    # is the right family: the caption's 12,10,8,6,4,2 is not it.
+    widths = [[int(w) for w in a.split(",")] for a in ARCH_DEFAULT.split(";")]
+    assert widths == [[10], [10, 7], [10, 7, 5], [10, 7, 5, 4], [10, 7, 5, 4, 3],
+                      [10, 7, 5, 4, 4, 3]]
+    assert tuple(widths[4]) == PAPER_HIDDEN_WIDTHS
+
+
+def test_arch_rejects_two_architectures_of_the_same_depth(tmp_path):
+    with pytest.raises(SystemExit):
+        main(["arch", *TINY, "--architectures", "10,7;6,4", "--outdir", str(tmp_path)])
 
 
 def test_verify_passes_on_its_own_defaults():

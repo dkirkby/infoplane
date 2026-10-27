@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Figure 5 · Information plane</title>
+    <meta name="description" content="The information plane for networks of one to six hidden layers, as the paper's Figure 5 asks what the hidden layers buy." />
+    <link rel="stylesheet" href="./src/styles/main.css" />
+  </head>
+  <body>
+    <header class="site">
+      <div class="wrap">
+        <span class="brand">Information plane</span>
+        <nav>
+          <a href="./index.html">Overview</a>
+          <a href="./fig2.html">Fig 2 · Seeds</a>
+          <a href="./fig3.html">Fig 3 · Train size</a>
+          <a href="./fig4.html">Fig 4 · Gradients</a>
+          <a href="./fig5.html" aria-current="page">Fig 5 · Depth</a>
+        </nav>
+        <button id="theme" type="button">Theme: system</button>
+      </div>
+    </header>
+    <main class="wrap">
+      <h1>Figure 5 — the plane at six depths</h1>
+      <p class="lede">
+        Six networks, one to six hidden layers, each trained on the same 80% of the
+        patterns and averaged over 50 seeds. The widths grow from the input end — 10,
+        then 10-7, then 10-7-5 — so the five-layer panel is the architecture every
+        other page here uses, and the sixth is that one with a second 4-wide layer
+        inserted. The paper's question is what the hidden layers are <em>for</em>; its
+        answer is that depth buys compression cheaply.
+      </p>
+
+      <div class="controls">
+        <div class="control">
+          <button id="play" type="button" aria-pressed="false">Play</button>
+          <input type="range" id="epoch" />
+          <span class="readout" id="epoch-readout">epoch 0</span>
+        </div>
+      </div>
+
+      <div class="panel-head">
+        <div id="legend"></div>
+        <p class="note" id="provenance"></p>
+      </div>
+
+      <div class="grid-3 tight" id="panels"></div>
+
+      <div id="plane-table"></div>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>What each depth reaches</h2>
+            <p class="note" id="depth-note"></p>
+          </div>
+        </div>
+        <div id="depth-table"></div>
+      </section>
+
+      <p class="note" id="pinned-note"></p>
+
+      <p class="note">
+        <strong>The six-layer panel is the one measurement here with a problem.</strong>
+        Its architecture is 10-7-5-4-<strong>4</strong>-3 — the authors' own, with two
+        consecutive 4-wide layers — and between exactly that pair the estimator inverts
+        the data processing inequality in 4 of 50 seeds, 186 times out of 77,100, by up
+        to 0.39 bits. I(X;T) cannot rise with depth, so those are estimator error, not
+        measurement: binning layer <em>i+1</em> is not a coarsening of binning layer
+        <em>i</em>, and when the map between two layers of the same width is close to
+        invertible the 30-bin quantisation swamps the little information the layer
+        actually loses. It is the only pair of equal consecutive widths in the sweep and
+        the only violation above a hairline — the others are 1 to 23 inversions of under
+        0.01 bits between two layers sitting at 11.99 bits, which is the usual saturated
+        pair. Nothing here has been tuned to hide it; the table above carries the counts.
+      </p>
+
+      <p class="note">
+        <strong>Which architectures these are, and why not the caption's.</strong> The
+        caption says "the width of the hidden layers start with 12, and each additional
+        layer has 2 fewer neurons", and §3.6 adds "the first hidden layer (of width
+        12)". The authors' code says otherwise, and it says it about this exact figure:
+        <code>plots/plot_figures.py</code> builds a 2×3 grid titled "One hidden layer"
+        … "Six hidden layers" and feeds it
+        <code>ff3_5</code>, <code>ff3_4</code>, <code>ff3_3</code>, <code>ff3_2</code>,
+        <code>ff3_1</code> and a run named <code>layerSizes=10,7,5,4,4,3</code>. The
+        <code>ff3_N</code> suffix is the <code>net_type</code> argument, and
+        <code>select_network_arch</code> maps 5, 4, 3, 2, 1 to [10], [10,7], [10,7,5],
+        [10,7,5,4], [10,7,5,4,3] — one to five hidden layers, in panel order, with the
+        sixth spelled out in the path. The widths grow from the input end, the
+        decrements are 3, 2, 1, 1 rather than 2, and the 12 is the <em>input</em>,
+        counted as a hidden layer exactly as §4.1 does when it writes the network as
+        "12-10-7-5-4-3-2". This project follows the code.
+      </p>
+
+      <p class="note">
+        <strong>So the five-layer panel is the main run.</strong> 10-7-5-4-3 is the
+        architecture behind Figures 2, 3 and 4 here, trained the same way on the same
+        80% head split, which makes that panel a check on the whole pipeline rather
+        than a new measurement: it should reproduce Figure 2's ensemble-mean paths, and
+        it does. The caption's family would have made it 12-10-8-6-4 and comparable to
+        nothing.
+      </p>
+
+      <p class="note">
+        <strong>The paper's Figure 5 is plotted in nats, not bits.</strong> Its axes run
+        to 9 and to 0.7 where every other information-plane figure in the paper runs to
+        12 and to 1. Those are the same two bounds in natural logarithms:
+        H(X) = 12 bits = 8.32 nats, H(Y) = 1 bit = 0.693 nats, which is exactly where
+        its curves top out. Nothing about the experiment changed between figures — only
+        the log base in whatever drew it. Read against this page, divide the paper's
+        numbers by ln 2.
+      </p>
+
+      <p class="note" id="claims-note"></p>
+
+      <p class="note">
+        <strong>The output layer is counted as a layer.</strong> The caption's "final
+        layer with 2 neurons is shown in all panels" is the readout — the authors use a
+        two-way softmax where we use one sigmoid unit, the same model written
+        differently — and it is measured here as the deepest series in every panel, as
+        it is on every other page.
+      </p>
+    </main>
+    <script type="module" src="./src/scripts/fig5.js"></script>
+  </body>
+</html>

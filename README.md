@@ -22,6 +22,9 @@ uv run infoplane run --num-seeds 50 --num-workers 8 --out data/infoplane.json
 
 # Figure 3: one ensemble per training-set size (the paper's 5/45/85%, plus 15%)
 uv run infoplane sweep --train-sizes 205,614,1843,3482 --outdir data/trainsize
+
+# Figure 5: one ensemble per depth, the authors' six architectures (see ARCH_DEFAULT)
+uv run infoplane arch --outdir data/arch
 ```
 
 `infoplane run --help` lists every knob. Useful non-defaults:
@@ -43,7 +46,10 @@ uv run infoplane sweep --train-sizes 205,614,1843,3482 --outdir data/trainsize
 Three sources disagree about this experiment: the paper's text, the released code
 ([IDNNs](https://github.com/ravidziv/IDNNs)), and the released data (`var_u.mat`).
 **Where they conflict, this project follows the code and the file**, on the grounds that
-those are what actually produced the figures. Every such choice is listed here.
+those are what actually produced the figures. Every such choice is listed here. A second
+table, ["What the captions say vs what the figures show"](#what-the-captions-say-vs-what-the-figures-show),
+covers a different kind of disagreement: the places where a caption describes something
+the published panel is not.
 
 | Setting | Paper text | IDNNs code | Here |
 | --- | --- | --- | --- |
@@ -122,6 +128,43 @@ v3's Figure 3 caption adds a detail v1 omits — the evolution panels were run w
 `input=12-10-8-6-4-2-1=output`, i.e. hidden widths 10-8-6-4-2, not the 10-7-5-4-3 that
 §4.1 and the code give as the default. So two different five-hidden-layer networks appear
 in the paper's figures. We run the code's.
+
+### What the captions say vs what the figures show
+
+The table above is about the experiment. This is about the *figures*, and it is a
+different kind of disagreement: in each case the caption or the surrounding text
+describes something the published panel demonstrably is not. All of it was found by
+trying to reproduce the panel and failing, then going back to the code that drew it.
+
+| Figure | The caption says | What the figure or its code shows | Evidence |
+| --- | --- | --- | --- |
+| 4 | "the values are normalized by the L2 norms of the weights for each layer" | nothing is divided | `calc_weights_norms` builds `flatted_list = [1]` and returns 1 for every layer, its real body commented out, and its call site is commented out too |
+| 4 | per-layer gradient curves | `plot_gradients.py` draws *cumulative sums over layers*, and takes `sqrt` of values that are already square roots | `y_var = np.sum(cov_traces_all, axis=0)` inside the `for layer` loop, then `axes_log.plot(..., np.sqrt(y_var))` |
+| 4 | the dotted curves are `STD(∇W_i)` over minibatches | they cannot be: they open 100–220x *below* the mean, where that ratio has a hard ceiling near 3 on this task | measured, 50 seeds x 6 matrices; see the Figure 4 section |
+| 5 | "the width of the hidden layers start with 12, and each additional layer has 2 fewer neurons" | `[10]`, `[10,7]`, `[10,7,5]`, `[10,7,5,4]`, `[10,7,5,4,3]`, `[10,7,5,4,4,3]` | `plot_figures.py` mode 11 — the 2x3 grid titled "One hidden layer" … "Six hidden layers" — is fed `ff3_5 … ff3_1` plus `layerSizes=10,7,5,4,4,3`, and `ff3_N` is the `net_type` that `select_network_arch` maps to the first five |
+| 5 | axes in bits, as every other information-plane figure in the paper | axes in **nats** | they stop at 9 and 0.7; H(X) = 12 bits = 8.32 nats and H(Y) = 1 bit = 0.693 nats, which is exactly where its curves top out |
+| 5 | "the first hidden layer (of width 12)" (§3.6) | the first hidden layer is 10 wide; 12 is the input | same miscount as §4.1's "12-10-7-5-4-3-2", which the architecture discussion above is about |
+
+Two of these are worth a sentence more.
+
+**Figure 4's dotted curve is the one irreducible discrepancy in this replication.** Every
+other gap here is a settings difference that can be stated and moved past. This one is
+not: the quantity the paper defines cannot take the value the paper prints. At
+initialisation the network answers 0.4908–0.5070 to all 4,096 inputs, so each sample's
+gradient is `(p − y)` times nearly the same vector and only the label separates one sample
+from another, which bounds `‖mean‖/spread` by `√B·|p̄ − ȳ|/sd(y) = 2.8`. Measured over 50
+seeds and 6 matrices the ratio is 0.29 with the authors' contiguous batches and 1.30 with
+random ones, against a ceiling of 2.6 median / 10.7 max. The figure needs 100–220.
+Reaching that would take 650,000 samples per batch, 158x the whole dataset. What *does*
+land on the published curve is a spread taken over the epoch's optimiser **steps** rather
+than its minibatches — see the Figure 4 section for the numbers and the caveats.
+
+**Figure 5's caption probably describes a different network than its panels.** "Start with
+12, and each additional layer has 2 fewer neurons" is precisely the
+`input=12-10-8-6-4-2-1=output` chain of Figure 4's inset and of v3's Figure 3 caption —
+the *other* five-hidden-layer network that appears in this paper. The panels were produced
+from the code's default family instead. That is a guess about how the caption came to be
+written; what is not a guess is which runs the plotting code feeds those six panels.
 
 ### Checked line by line against the authors' code
 
@@ -272,6 +315,7 @@ until `infoplane fetch` and `infoplane run` have produced the exports.
 | `fig2.html` | The plane with one mark per (seed, layer) at a scrubbed epoch; hovering traces one seed through all five layers. |
 | `fig3.html` | The plane at four training-set fractions as small multiples; all four exports load up front, since the figure is the comparison between them. |
 | `fig4.html` | The paper's Figure 4: each weight matrix's mean gradient against its spread, log-log, plus their ratio. The spread is reduced over minibatches (default) or over optimiser steps. |
+| `fig5.html` | The paper's Figure 5: the same plane for one to six hidden layers, one panel per depth; the five-layer panel is the main run. |
 
 ### Design decisions worth keeping
 
@@ -587,6 +631,82 @@ shallowest matrices' spread
 rises over training (27x, 17x, 7x, peaking near epoch 1,500) while the three deepest peak
 inside 70 epochs and then fall one to two orders of magnitude as the network converges.
 
+**Figure 5 asks what the hidden layers buy.** `infoplane arch` trains one ensemble per
+depth, 1 to 6 hidden layers, 50 seeds each on the same 80% head split as the main run.
+
+*The architectures* are `[10]`, `[10,7]`, `[10,7,5]`, `[10,7,5,4]`, `[10,7,5,4,3]`,
+`[10,7,5,4,4,3]` — the authors' own, read off their plotting code. The caption describes
+something else ("the width of the hidden layers start with 12, and each additional layer
+has 2 fewer neurons"), and §3.6 adds "the first hidden layer (of width 12)", but
+`plots/plot_figures.py` builds a 2x3 grid titled "One hidden layer" … "Six hidden layers"
+and feeds it `ff3_5`, `ff3_4`, `ff3_3`, `ff3_2`, `ff3_1` and a run named
+`layerSizes=10,7,5,4,4,3`. The `ff3_N` suffix is the `net_type` argument, and
+`select_network_arch` maps 5, 4, 3, 2, 1 to the first five of the list above — one to five
+hidden layers in panel order, with the sixth spelled out in the path. The widths grow from
+the input end, the decrements are 3, 2, 1, 1 rather than 2, and the 12 in the caption is
+the *input*, counted as a hidden layer exactly as §4.1 does when it writes the network as
+"12-10-7-5-4-3-2". Following the caption instead was tried first and is wrong: it makes
+the five-layer panel 12-10-8-6-4, comparable to nothing else here. **The five-layer member
+is `PAPER_HIDDEN_WIDTHS`**, so that panel is the main run's architecture on the main run's
+split and should reproduce Figure 2's ensemble means — which is what makes it a check on
+the pipeline rather than a new measurement.
+
+*The paper's Figure 5 is plotted in nats, not bits.* Its axes stop at 9 and 0.7 where
+every other information-plane figure in the paper stops at 12 and 1. Those are the same
+two bounds in natural logarithms — H(X) = 12 bits = 8.32 nats, H(Y) = 1 bit = 0.693 nats —
+and its curves top out exactly there. Divide the paper's Figure 5 numbers by ln 2 before
+comparing them with anything here.
+
+What it shows (50 seeds, 9,000 epochs; the → columns are the first epoch at which the
+readout's mean I(T;Y) reaches that share of H(Y)):
+
+| hidden | widths | test acc | → 80% | → 90% | → 95% | readout I(T;Y) | DPI |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 10 | 0.9684 | 2,541 | 4,126 | 7,765 | 0.953 | 0/12,850 |
+| 2 | 10-7 | 0.9781 | 1,350 | 2,541 | 4,040 | 0.970 | 0/25,700 |
+| 3 | 10-7-5 | 0.9733 | 1,049 | 2,102 | 4,126 | 0.961 | 23/38,550 |
+| 4 | 10-7-5-4 | 0.9656 | 1,071 | 2,436 | never | 0.947 | 1/51,400 |
+| 5 | 10-7-5-4-3 | 0.9665 | 964 | 2,436 | never | 0.947 | 0/64,250 |
+| 6 | 10-7-5-4-4-3 | 0.9549 | 1,005 | 3,072 | never | 0.930 | 196/77,100 |
+
+- **The five-layer panel is bit-identical to the main run**, as it must be: same
+  architecture, split, seeds and settings. Zero difference at every checkpoint on all six
+  series. That is the check that the family above is the right one — and it is why that
+  panel is worth comparing with Figure 3's 85% panel, which is the same architecture on a
+  random 85% split: the shallow layers agree to 0.2 bits and the deep ones compress
+  further under the random split (Layer 4 reaches 6.37 bits there against 8.66 here),
+  which is the head slice's class imbalance, not the depth.
+- **Depth buys speed, and nearly all of it is the second hidden layer.** At the 80% bar:
+  2,541 epochs with one hidden layer, 1,350 with two, and then flat — 1,049, 1,071, 964,
+  1,005. The second layer is worth 1.9x; the four after it are worth 1.3x between them,
+  and not monotonically.
+- **Past two layers, depth costs.** Test accuracy peaks at two hidden layers (0.9781) and
+  falls to 0.9549 at six; the readout's final I(T;Y) falls 0.970 → 0.930. At the 95% bar
+  the three deepest never arrive at all. The paper's claim does not reproduce in its
+  strong form: a single 10-wide hidden layer is not "unable to achieve good I_Y values
+  even after 10⁴ epochs" — it reaches 0.953 of 0.999 bits — and no architecture reaches
+  the bar "within 400 epochs".
+- **The fitting phase does move earlier with depth.** The readout's I(X;T) peak lands at
+  epochs 534, 255, 179, 139, 117, 103 for 1 to 6 layers. That 5.2x is the real "deeper is
+  faster" effect in these runs.
+- **Only the deepest layers move.** Counting the deepest hidden layers that leave the
+  I(X;T) ceiling: 0, 1, 1, 2, 3, 4 across the six panels. A width is not pinned or
+  unpinned in itself — the 5-wide layer compresses 6.32 bits when it is the last hidden
+  layer, 0.34 with one behind it, and 0.02 with three. The 10-wide first layer never moves
+  in any panel, which is the paper's own point 4, except that the paper expects it to
+  compress eventually and in 9,000 epochs it does not.
+- **The six-layer run is the one measurement here with a problem.** Its architecture is
+  10-7-5-4-**4**-3 — two consecutive 4-wide layers — and between exactly that pair the
+  estimator inverts the DPI in 4 of 50 seeds, 186 times out of 77,100, by up to 0.39 bits.
+  I(X;T) cannot rise with depth, so that is estimator error: binning layer *i+1* is not a
+  coarsening of binning layer *i*, and when the map between two layers of the same width
+  is close to invertible, the 30-bin quantisation swamps the information the layer
+  actually loses. It is the only equal-width consecutive pair in the sweep and the only
+  violation above a hairline; the rest are 1-23 inversions under 0.01 bits between two
+  layers sitting at 11.99 bits, the usual saturated pair. The rate (2.5e-3) is 25x the
+  `verify` tolerance, which is working as intended — it is telling the truth about an
+  architecture the estimator handles badly, and nothing has been tuned to silence it.
+
 ## Export schema (the Phase 1 → Phase 2 contract)
 
 ```
@@ -613,7 +733,9 @@ inside 70 epochs and then fall one to two orders of magnitude as the network con
 
 Every array is indexed by checkpoint and has length `metadata.checkpoints`. `runs` feeds
 Figure 2's per-seed highlighting, `aggregated` feeds Figure 4's ±1σ bands, and `sweep`
-writes one such file per training size plus an `index.json`. Prefer additive changes.
+and `arch` each write one such file per panel plus an `index.json` — `{"sizes": [...]}`
+keyed by `train_size` for Figure 3, `{"architectures": [...]}` keyed by `n_hidden` with
+the `widths` of each for Figure 5. Prefer additive changes.
 
 ## Deliberate deviations from `PLAN.md`
 

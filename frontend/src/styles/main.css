@@ -198,14 +198,20 @@ button[aria-pressed="true"], .toggle[aria-pressed="true"] {
 .plot { width: 100%; }
 .plot svg { display: block; width: 100%; height: auto; overflow: visible; }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1.25rem; }
+/* Six panels want three columns, so they sit 2x3 as the paper's Figure 5 does;
+   below ~960px the auto-fit drops to two and then one. */
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.25rem; }
 /* Small multiples are read by comparing them, so they are packed tighter than
    stand-alone cards: less gap, less padding, no per-card bottom margin. The four
    panels then sit close enough that a trajectory in one can be held against the
    same trajectory in another without a saccade across empty space. */
-.grid-2.tight { gap: 0.5rem; margin-bottom: 1rem; }
-.grid-2.tight .panel { margin-bottom: 0; padding: 0.6rem 0.6rem 0.4rem; }
-.grid-2.tight .panel h2 { font-size: 0.95rem; margin: 0; }
-.grid-2.tight .card-head { margin-bottom: 0.25rem; }
+.grid-2.tight, .grid-3.tight { gap: 0.5rem; margin-bottom: 1rem; }
+.tight .panel { margin-bottom: 0; padding: 0.6rem 0.6rem 0.4rem; }
+.tight .panel h2 { font-size: 0.95rem; margin: 0; }
+/* The architecture under a Figure 5 panel title: the thing that varies between
+   panels, at label size so it does not read as a second heading. */
+.tight .panel .card-head .note { font-size: 0.78rem; margin: 0.1rem 0 0; }
+.tight .card-head { margin-bottom: 0.25rem; }
 /* The legend and provenance belong to the whole grid, not to any one panel. */
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
 .panel-head p { margin: 0; }

@@ -123,6 +123,13 @@ export async function loadSweepIndex(url = "data/trainsize/index.json") {
   return (await res.json()).sizes;
 }
 
+/** The architecture manifest (Figure 5): one entry per depth, 1..6 hidden layers. */
+export async function loadArchIndex(url = "data/arch/index.json") {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+  return (await res.json()).architectures;
+}
+
 /**
  * Nearest mark to a pointer, by squared distance in *pixels* so the hit area is
  * isotropic on screen rather than in data units. Returns null past `maxDist`,

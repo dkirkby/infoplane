@@ -15,10 +15,13 @@ files current when that contract changes.
 
 **The paper's text, the authors' code and the authors' data file disagree with each other
 in several places**, and this project follows the code and the file, because those are what
-produced the figures. README's "What the paper says vs what the authors ran" is the full
-list; the four that bite are the optimiser (text says SGD, code runs Adam at 4e-4), the
-architecture (see below), the labels (text says stochastic, file is deterministic), and the
-train/test split (text says randomized, code takes the first 80% of the file unshuffled).
+produced the figures. README has two tables: "What the paper says vs what the authors ran"
+(the experiment) and "What the captions say vs what the figures show" (the figures — where
+a caption describes something the published panel demonstrably is not, which is how both
+the Figure 4 normalisation and the Figure 5 architectures were caught). The four settings
+that bite are the optimiser (text says SGD, code runs Adam at 4e-4), the architecture (see
+below), the labels (text says stochastic, file is deterministic), and the train/test split
+(text says randomized, code takes the first 80% of the file unshuffled).
 Reading the paper alone will lead you to re-introduce bugs that have already been fixed
 here. The code was re-checked line by line on 2026-10-26 against IDNNs and against an
 independent reproduction; README's "Checked line by line against the authors' code" has
@@ -34,6 +37,7 @@ uv run pytest tests/test_mi.py::test_mi_of_independent_variables_is_zero_for_a_p
 uv run infoplane verify # ~11 s end-to-end run asserting the paper's invariants
 uv run infoplane run --num-seeds 50 --num-workers 8 --out data/infoplane.json   # ~5 min
 uv run infoplane sweep --train-sizes 205,614,1843,3482 --outdir data/trainsize  # Figure 3
+uv run infoplane arch --outdir data/arch                                        # Figure 5
 
 cd frontend && npm install && npm run dev     # the figure pages (needs the data above)
 cd frontend && npm run build                  # static site -> frontend/dist
@@ -72,11 +76,10 @@ there because the first cannot reproduce the published figure — see the `fig4`
 
 ## Frontend (`frontend/`)
 
-Four static pages (`index`, `fig2`, `fig3`, `fig4`), one Vite entry each — not an SPA.
-The paper's Figure 3 is the training-size comparison, which is what `fig3.html` now shows;
-the old "fitting against compression" page was retired when it was relabelled. There is no
-Figure 5 page yet — the paper's is a comparison of architectures, which Phase 1 has not
-been run for. Shared
+Five static pages (`index`, `fig2`, `fig3`, `fig4`, `fig5`), one Vite entry each — not an
+SPA. The paper's Figure 3 is the training-size comparison, which is what `fig3.html` shows;
+the old "fitting against compression" page was retired when it was relabelled. `fig5.html`
+is the architecture comparison, fed by `infoplane arch`. Shared
 modules in `src/scripts/`: `chart.js` (frames, axes, legend, tooltip, table view),
 `data.js` (fetch + reshape the export into typed arrays), `scrubber.js`, `theme.js`.
 `public/data` is a symlink to the repo's `data/`, dereferenced into `dist` at build.
@@ -117,11 +120,13 @@ Rules that are load-bearing, not taste — a change here needs the same validati
   seeds: every seed steps through the same fixed minibatches, so they swing together (one
   seed jitters 32% on `input->L1`, a 16-seed median still 23%, independent noise would
   leave 8%). More seeds is not the fix; a window of epochs is.
-- **The information-plane scatters (`fig2`, `fig3`) are categorical, not ordinal.** They
-  are the pages where any two marks have to be told apart rather than just neighbours, and
-  they plot four series. `PLANE_SERIES`, `planeMark`, `pinnedLayers` and `pinnedLabel` in
-  `chart.js` are the single source for both — add a page that plots the plane and it uses
-  those, rather than growing a third variant. The hues are catalogue slots **1/4/5/6** (`.c1 .c4 .c5 .c6`) --
+- **The information-plane scatters (`fig2`, `fig3`, `fig5`) are categorical, not
+  ordinal.** They are the pages where any two marks have to be told apart rather than just
+  neighbours, and they plot four series. `PLANE_SERIES`, `planeMark`, `pinnedLayers` and
+  `pinnedLabel` in `chart.js` are the single source for all three — add a page that plots
+  the plane and it uses those, rather than growing a fourth variant. Four slots is the
+  whole budget; `fig5` fits inside it only because its wide layers are pinned (see below),
+  and both it and `fig3` drop what does not fit rather than inventing a hue. The hues are catalogue slots **1/4/5/6** (`.c1 .c4 .c5 .c6`) --
   the subset found by enumerating all 70 four-slot combinations against
   `validate_palette.js --pairs all` in both themes, and one of only two that pass. Its
   dark-mode CVD separation is 6.9, inside the band that is legal *only* with a secondary
@@ -136,6 +141,13 @@ Rules that are load-bearing, not taste — a change here needs the same validati
   deeper `--widths`. Truncating the ramp is safe (every gate is per-adjacent-pair or on the
   surface-side end) and was re-validated as 6 slots, but extending or re-ordering it is
   not — run the dataviz skill's `validate_palette.js --ordinal` in both modes.
+- **`fig5` keys a series from the OUTPUT end of the chain, not by index.** Its four
+  roles are the readout, `L(n)`, `L(n-1)`, `L(n-2)`, where *n* is that panel's hidden-layer
+  count, which each panel title carries as "(n = 4)". An index from the input would give
+  six roles across the panels — more than the palette has — and would make the same colour
+  mean the last hidden layer in one panel and a middle one in another. Counting from the
+  output keeps it at four, which is exactly the budget, and names the thing the panels are
+  being compared on: it is the deepest layers that move.
 - **Never put I(X;T) and I(T;Y) on one pair of axes** (0-12 bits vs 0-1).
 - Figure 2 reads `runs`, not `aggregated` — see the expected-results note below.
 - **Figure 2 drops the pinned layers from its plot** (not from its table), and finds them
@@ -175,6 +187,20 @@ geometric f" either. Match the probe to the hypothesis being rejected.
   pins three layers at the 12-bit ceiling instead of one, traps 8 of 50 seeds near 0.92
   train accuracy (unchanged by training 30,000 epochs instead of 9,000), and produces every
   DPI violation this project has ever recorded.
+- **Figure 5's architectures come from the plotting code, not from its caption.**
+  `infoplane arch` defaults to `ARCH_DEFAULT` in `cli.py`: `[10]`, `[10,7]`, `[10,7,5]`,
+  `[10,7,5,4]`, `[10,7,5,4,3]`, `[10,7,5,4,4,3]`. The authors' `plots/plot_figures.py`
+  builds the 2x3 grid titled "One hidden layer" ... "Six hidden layers" (mode 11) and
+  feeds it `ff3_5, ff3_4, ff3_3, ff3_2, ff3_1` plus a run named
+  `layerSizes=10,7,5,4,4,3`; the `ff3_N` suffix is `net_type`, which
+  `select_network_arch` maps to exactly the first five of those, in panel order. The
+  caption's "start with 12, and each additional layer has 2 fewer neurons" and §3.6's
+  "the first hidden layer (of width 12)" match none of it — the 12 is the input width,
+  miscounted as a hidden layer the same way §4.1 does. **Do not "fix" `arch` to
+  12-10-8-6-4-2**; that was tried, and it makes the five-layer panel 12-10-8-6-4, which
+  is comparable to nothing else in the project. The five-layer member being
+  `PAPER_HIDDEN_WIDTHS` is the test that the family is right (`tests/test_cli.py`), and
+  that panel should reproduce Figure 2's ensemble means.
 - **Three defaults copy IDNNs rather than convention, and all three look like bugs.**
   `split="head"` takes the first 80% of the file, the same rows for every seed (their
   `data_shuffle` defaults to `shuffle_data=False`); that slice is class-imbalanced, 0.437
@@ -262,6 +288,17 @@ layers' final I(T;Y) is what separates them -- 0.45 at 5% against 0.96 at 85% --
 the paper's point: compression happens in all four, but what it costs depends on the
 sample. Three panels are DPI-clean; 85% has one +0.004-bit L1 -> L2 inversion (two
 saturated layers within a bin of each other).
+
+Figure 5 sweep (`infoplane arch`, the authors' six architectures): mean final test
+accuracy 0.9684, 0.9781, 0.9733, 0.9656, 0.9665, 0.9549 — it **peaks at two hidden layers**
+and falls with depth. The five-layer panel is **bit-identical to the main run** (same
+widths, split and seeds), which is the check that the family is right. Depth buys speed
+mostly at the second layer (first epoch where the readout reaches 80% of H(Y): 2,541 →
+1,350 → 1,049 → 1,071 → 964 → 1,005) and the three deepest never reach 95%. Only the
+deepest 0-4 hidden layers leave the I(X;T) ceiling. **The six-layer run has 196 DPI
+violations in 77,100, up to +0.39 bits** — all between its two consecutive 4-wide layers
+(10-7-5-4-4-3), where binning the second is not a coarsening of binning the first. That is
+diagnosed, not tuned away; `verify` runs the default architecture and is unaffected.
 
 `--dataset quadric` for contrast reaches test 0.9890 with compression 0.01, 0.24, 0.81,
 3.72, 5.23, 1.89 — more in the deep layers than `var_u`, being a deterministic rule the

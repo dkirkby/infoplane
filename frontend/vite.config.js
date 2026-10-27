@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 
 // One entry per figure: these are standalone static pages, not a single-page app,
 // so each gets its own HTML document and its own bundle.
-const pages = ["index", "fig2", "fig3", "fig4"];
+const pages = ["index", "fig2", "fig3", "fig4", "fig5"];
 
 export default defineConfig({
   base: "./",

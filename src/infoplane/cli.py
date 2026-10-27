@@ -1,4 +1,4 @@
-"""Command line entry point: ``infoplane run`` / ``infoplane sweep`` / ``infoplane verify``."""
+"""Command line entry point: ``infoplane run`` / ``sweep`` / ``arch`` / ``verify``."""
 
 from __future__ import annotations
 
@@ -33,6 +33,11 @@ from .train import TrainConfig, dpi_stats
 # that has become badly conditioned -- which is what it is for.
 DPI_TOL_BITS = 0.1
 DPI_MAX_VIOLATION_FRAC = 1e-4
+
+# Figure 5's six architectures, read off the authors' `plots/plot_figures.py`
+# rather than off the figure's caption -- see `cmd_arch`. One to six hidden
+# layers; the five-layer member is the main run's architecture.
+ARCH_DEFAULT = "10;10,7;10,7,5;10,7,5,4;10,7,5,4,3;10,7,5,4,4,3"
 
 
 def _add_common(p: argparse.ArgumentParser) -> None:
@@ -168,7 +173,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_sweep(args: argparse.Namespace) -> int:
-    """Figure 5: one ensemble per training-set size, written as separate files.
+    """Figure 3: one ensemble per training-set size, written as separate files.
 
     Kept as separate files with an identical schema rather than a new axis inside
     one document, so the frontend can lazy-load only the sizes being compared.
@@ -192,6 +197,69 @@ def cmd_sweep(args: argparse.Namespace) -> int:
             "final_test_acc": payload["diagnostics"]["final_test_acc_mean"],
         })
     (outdir / "index.json").write_text(json.dumps({"sizes": index}, indent=2))
+    if not args.quiet:
+        print(f"  wrote {outdir / 'index.json'}")
+    return 0
+
+
+def cmd_arch(args: argparse.Namespace) -> int:
+    """Figure 5: one ensemble per architecture, 1..6 hidden layers.
+
+    The six architectures are the authors' own, read off their plotting code
+    rather than off the figure's caption.  ``plots/plot_figures.py`` builds the
+    2x3 panel grid whose titles are "One hidden layer" ... "Six hidden layers"
+    (mode 11) and feeds it ``ff3_5``, ``ff3_4``, ``ff3_3``, ``ff3_2``, ``ff3_1``
+    and a run named ``layerSizes=10,7,5,4,4,3``.  The ``ff3_N`` suffix is the
+    ``net_type`` argument, and ``select_network_arch`` maps those to
+
+        '5' -> [10]            '4' -> [10, 7]        '3' -> [10, 7, 5]
+        '2' -> [10, 7, 5, 4]   '1' -> [10, 7, 5, 4, 3]
+
+    which is one to five hidden layers in panel order, with the sixth panel's
+    net spelled out in the path.  So the family is the main architecture grown
+    from the input end, and the six-layer member is the five-layer one with a
+    second 4-wide layer inserted -- NOT a width per layer that can be computed,
+    which is why this takes architectures rather than a rule.
+
+    The caption says something else: "the width of the hidden layers start with
+    12, and each additional layer has 2 fewer neurons", and S3.6 adds "the first
+    hidden layer (of width 12)".  Neither matches [10, 7, 5, 4, 3], whose
+    decrements are 3, 2, 1, 1; the 12 is the *input* width, miscounted as a
+    hidden layer exactly as S4.1 does when it writes the network as
+    "12-10-7-5-4-3-2".  This project follows the code.
+
+    One consequence worth keeping: the five-layer member IS the main run's
+    architecture, so that panel should reproduce Figure 2's ensemble means.
+
+    Same output shape as :func:`cmd_sweep`: one file per architecture plus an
+    index, so the frontend loads six small documents rather than one large one.
+    """
+    dataset = _dataset(args)
+    base = _config(args)
+    archs = [tuple(int(w) for w in a.split(",")) for a in args.architectures.split(";") if a.strip()]
+    depths = [len(a) for a in archs]
+    if len(set(depths)) != len(depths):
+        raise SystemExit(f"--architectures must have one entry per depth, got {depths}")
+    outdir = Path(args.outdir)
+    index = []
+    for widths in archs:
+        k = len(widths)
+        cfg = replace(base, widths=widths)
+        suffix = "arrow" if args.format == "arrow" else "json"
+        out = outdir / f"arch_{k}.{suffix}"
+        if not args.quiet:
+            print(f"{k} hidden layer{'s' if k > 1 else ''} {list(widths)}:")
+        payload = _run_one(dataset, cfg, args, out)
+        index.append({
+            "n_hidden": k,
+            "widths": list(widths),
+            "file": out.name,
+            "final_train_acc": payload["diagnostics"]["final_train_acc_mean"],
+            "final_test_acc": payload["diagnostics"]["final_test_acc_mean"],
+            "dpi_violations": payload["diagnostics"]["dpi_violations"],
+            "dpi_measurements": payload["diagnostics"]["dpi_measurements"],
+        })
+    (outdir / "index.json").write_text(json.dumps({"architectures": index}, indent=2))
     if not args.quiet:
         print(f"  wrote {outdir / 'index.json'}")
     return 0
@@ -261,6 +329,15 @@ def main(argv: list[str] | None = None) -> int:
     # pattern, so the first 50 rows are all label 0 and a small head slice is a
     # single-class training set.  Pass --split head to override.
     p.set_defaults(func=cmd_sweep, split="random")
+
+    p = sub.add_parser("arch", help="Figure 5: repeat the ensemble over 1..6 hidden layers")
+    _add_common(p)
+    p.add_argument("--architectures", default=ARCH_DEFAULT,
+                   help="semicolon-separated hidden widths, one architecture per panel "
+                        "(default: the six the authors' plot_figures.py feeds its "
+                        "'One hidden layer'...'Six hidden layers' grid)")
+    p.add_argument("--outdir", default="data/arch")
+    p.set_defaults(func=cmd_arch)
 
     p = sub.add_parser("fetch", help="download the authors' var_u.mat (1 KB, checksummed)")
     p.add_argument("--data-path", default=None, help=f"destination (default: {DEFAULT_VAR_U_PATH})")
