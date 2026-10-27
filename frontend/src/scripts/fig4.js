@@ -1,300 +1,364 @@
-/** Figure 4 - both information quantities against training epoch.
+/** Figure 4 - the minibatch gradients of each weight matrix, over training.
  *
- * Two charts stacked on a shared x-axis, never one chart with two y-scales:
- * I(X;T) spans 0-12 bits and I(T;Y) spans 0-1, and aligning two such scales on
- * one plot invents a relationship that isn't in the data.
+ * The paper's Figure 4 is not about information at all: it plots, per layer and
+ * per epoch, the norm of the MEAN minibatch gradient against the norm of their
+ * spread, on log-log axes, and reads a phase transition off the point where the
+ * two cross. Before it the gradient has a large mean and small variance - SGD is
+ * drifting downhill. After it the mean is swamped by batch-to-batch noise and
+ * the weights diffuse under the error constraint, which is the mechanism §5.2
+ * offers for the compression phase.
  *
- * The x-axis is logarithmic, which means epoch 0 cannot appear on it (log has no
- * zero). The initialisation checkpoint is therefore omitted here and shown on
- * Figures 2 and 3 instead, rather than being quietly clamped onto epoch 1.
+ * Six curves, not five: one per weight MATRIX, so (input,L1), (L1,L2) ... and
+ * (L5,output). They take CATEGORICAL hues, catalogue slots 1-6, rather than the
+ * ordinal depth ramp: twelve lines are on screen at once here, a mean and a
+ * spread for each matrix, and six steps of one blue cannot separate six series
+ * that cross each other repeatedly. Lines are gated on the ADJACENT pairlist
+ * rather than all-pairs, so the catalogue order is legal this far -- see
+ * main.css. Mean against spread is then a line-STYLE distinction, solid against
+ * dashed, exactly as the paper draws it.
+ *
+ * TWO THINGS HERE ARE NOT WHAT THE CAPTION SAYS, both on purpose.
+ *
+ * 1. The curves are NOT divided by the weight norms by default, though Figure
+ *    4's caption says "the values are normalized by the L2 norms of the weights
+ *    for each layer". The authors' released code does not divide:
+ *    `calc_weights_norms` builds `flatted_list = [1]` and returns 1 for every
+ *    layer, and even that is commented out at the call site. Dividing is also
+ *    what breaks the figure: ||W|| for (L5,output) starts four times smaller
+ *    than ||W|| for (input,L1) -- three weights against a hundred and twenty --
+ *    and then grows fourteenfold, so the ratio lifts that one curve above all
+ *    the others early and crushes it below them late. Undivided, the six curves
+ *    start on top of each other and end ordered by depth, which is what the
+ *    published figure shows. The toggle puts the division back.
+ * 2. A smoothed curve is drawn over the measured one (faint, behind). The
+ *    published figure has no checkpoint-to-checkpoint noise at all, and the
+ *    quantity it plots does: with Adam, ||E[g]|| swings by 50% between adjacent
+ *    log-spaced checkpoints late in training, and a median over 50 seeds does
+ *    not remove it, because every seed is stepping through the same fixed
+ *    minibatches and swings with the others. Averaging over a WINDOW OF EPOCHS
+ *    does remove it. `plot_gradients.py` imports statsmodels and never uses it,
+ *    which is where a lowess smoother would have gone.
  */
-import { area, line } from "d3-shape";
-import { scaleLinear, scaleLog } from "d3-scale";
+import { line } from "d3-shape";
+import { scaleLog } from "d3-scale";
 import { load, provenance } from "./data.js";
 import { initTheme } from "./theme.js";
-import {
-  Tooltip,
-  bits,
-  frame,
-  gridX,
-  gridY,
-  lclass,
-  legend,
-  responsive,
-  selectiveLabels,
-  short,
-  tableView,
-  xAxis,
-  yAxis,
-} from "./chart.js";
+import { frame, gridY, legend, responsive, tableView, xAxis, yAxis } from "./chart.js";
 
-const tip = new Tooltip();
+// Catalogue order, one slot per weight matrix. A seventh connection would need
+// the palette re-validated, not a seventh hue invented.
+const CLS = (k) => `c${k + 1}`;
+
+// Half-width of the smoothing window, in decades of epoch. The checkpoints are
+// log-spaced 0.0155 decades apart, so this averages over nine of them.
+const SMOOTH_DECADES = 0.07;
+
+// Only powers of ten get a label on a log axis; anything else is noise at this
+// density, and d3's default format prints "2e-3" style labels between them.
+const decade = (v) => {
+  const e = Math.log10(v);
+  if (Math.abs(e - Math.round(e)) > 1e-9) return "";
+  return v >= 0.001 && v < 100000 ? String(+v.toPrecision(6)) : v.toExponential(0);
+};
+const epochTick = (v) => (v < 1 || decade(v) === "" ? "" : v.toLocaleString("en-US"));
+
 initTheme(document.getElementById("theme"));
 
-const TICKS = [1, 3, 10, 30, 100, 300, 1000, 3000, 9000];
-const state = { emphasis: null, visible: null, allBands: false, hoverIdx: null };
+const state = { visible: null, emphasis: null, normalize: false };
 let d = null;
-const charts = [];
+let W = [];
+let width = 0;
+let redraw = () => {};
 
 load("data/infoplane.json").then((data) => {
   d = data;
-  state.visible = d.layers.map(() => true);
+  W = d.weightLayers;
+  state.visible = W.map(() => true);
   document.getElementById("provenance").textContent = provenance(d);
 
-  legend(document.getElementById("legend"), d.layers.map(short), {
-    mark: "line",
+  const box = document.getElementById("normalize");
+  box.checked = state.normalize;
+  box.addEventListener("change", () => {
+    state.normalize = box.checked;
+    rebuild();
+  });
+
+  legend(document.getElementById("legend"), W, {
+    classFor: CLS,
     onEmphasis: (i) => {
       state.emphasis = i;
-      charts.forEach((c) => c.paint());
+      redraw();
     },
     onToggle: (vis) => {
       state.visible = vis;
-      charts.forEach((c) => c.paint());
+      redraw();
     },
   });
 
-  const bandBtn = document.getElementById("band");
-  bandBtn.addEventListener("click", () => {
-    state.allBands = !state.allBands;
-    bandBtn.setAttribute("aria-pressed", String(state.allBands));
-    charts.forEach((c) => c.paint());
+  responsive(document.getElementById("norms"), (w) => {
+    width = w;
+    rebuild();
   });
-
-  // from[0] is the first epoch >= 1, since epoch 0 has no place on a log axis.
-  const first = d.epochs.findIndex((e) => e >= 1);
-
-  responsive(document.getElementById("ixt"), (w) => {
-    charts[0] = buildChart({
-      host: document.getElementById("ixt"),
-      width: w,
-      first,
-      key: "ixt",
-      sdKey: "ixtSd",
-      max: d.bounds.H_X,
-      yLabel: "I(X;T)  —  bits",
-      bound: { v: d.bounds.H_X, text: `H(X) = ${d.bounds.H_X} bits` },
-      endLabels: true,
-    });
-    charts.forEach((c) => c.paint());
-  });
-
-  responsive(document.getElementById("ity"), (w) => {
-    charts[1] = buildChart({
-      host: document.getElementById("ity"),
-      width: w,
-      first,
-      key: "ity",
-      sdKey: "itySd",
-      max: d.bounds.H_Y,
-      yLabel: "I(T;Y)  —  bits",
-      bound: { v: d.bounds.H_Y, text: `H(Y) = ${bits(d.bounds.H_Y)} bits` },
-      // Every layer converges on H(Y) at the right edge, so end labels would pile
-      // up on each other; the legend and the crosshair carry identity here.
-      endLabels: false,
-      showX: true,
-    });
-    charts.forEach((c) => c.paint());
-  });
-
-  summaryTable(first);
 });
 
-function buildChart({ host, width, first, key, sdKey, max, yLabel, bound, endLabels, showX }) {
-  const height = Math.max(240, Math.min(340, Math.round(width * 0.38)));
-  const { plot, w, h } = frame(host, {
-    width,
-    height,
-    margin: { left: 56, right: endLabels ? 42 : 24, bottom: showX ? 42 : 26, top: 14 },
-  });
+/** Rebuild both charts: a toggle changes the data, not just what is shown. */
+function rebuild() {
+  document.getElementById("gradnote").textContent =
+    `Mean and spread of the per-minibatch gradients of each weight matrix` +
+    `${state.normalize ? ", each divided by that matrix's L2 norm" : ""}. ` +
+    `Median over ${d.nSeeds} seeds, ${d.meta.batch_size}-sample batches; the bold ` +
+    `curve is a geometric mean over a ±${SMOOTH_DECADES}-decade window of epochs.`;
+  const a = buildNorms(width);
+  const b = buildSnr(Math.floor(width));
+  redraw = () => {
+    a();
+    b();
+  };
+  redraw();
+}
 
-  const x = scaleLog([Math.max(1, d.epochs[first]), d.epochs[d.epochs.length - 1]], [0, w]);
-  const y = scaleLinear([0, max], [h, 0]).nice();
+/** The measured curve for one matrix, in whichever form is selected. */
+const mean = (name) => (state.normalize ? d.grads[name].meanNorm : d.grads[name].mean);
+const spread = (name) => (state.normalize ? d.grads[name].stdNorm : d.grads[name].std);
 
-  gridY(plot, y, w, 5);
-  gridX(plot, x, h, TICKS);
-  xAxis(plot, x, {
-    w,
-    h,
-    label: showX ? "Training epoch (log scale)" : null,
-    ticks: TICKS,
-    tickFormat: (v) => (v >= 1000 ? `${v / 1000}k` : String(v)),
-  });
-  yAxis(plot, y, { h, label: yLabel, ticks: 5, tickFormat: bits });
+/** Geometric running mean over a ±SMOOTH_DECADES window of log(epoch).
+ *
+ * Geometric, not arithmetic, because the figure is log-log and these norms are
+ * log-distributed: the mean of the logs is what a reader's eye takes off a
+ * smooth curve through a scatter on this axis. The init point has no log
+ * position and is left exactly as measured.
+ */
+function smooth(v) {
+  const n = v.length;
+  const out = new Float64Array(n).fill(NaN);
+  const lg = d.epochs.map((e) => (e > 0 ? Math.log10(e) : NaN));
+  for (let i = 0; i < n; i += 1) {
+    if (!Number.isFinite(lg[i])) {
+      out[i] = v[i];
+      continue;
+    }
+    let s = 0;
+    let k = 0;
+    for (let j = 0; j < n; j += 1) {
+      if (!Number.isFinite(lg[j]) || Math.abs(lg[j] - lg[i]) > SMOOTH_DECADES) continue;
+      if (!(v[j] > 0) || !Number.isFinite(v[j])) continue;
+      s += Math.log(v[j]);
+      k += 1;
+    }
+    out[i] = k ? Math.exp(s / k) : NaN;
+  }
+  return out;
+}
 
+/** Every checkpoint, epoch 0 included.
+ *
+ * The untrained network is the left edge of this figure -- it is where the mean
+ * and the spread are furthest apart, and leaving it out hides the first and
+ * largest part of the rise. A log axis has no position for 0, so it is placed
+ * half a decade left of epoch 1 and labelled, with a rule marking the break.
+ */
+const defined = () => d.epochs.map((_, i) => i);
+const INIT_X = 0.5;
+const xpos = (x, e) => x(e === 0 ? INIT_X : e);
+
+/** The shared epoch scale, with room for the init point on the left. */
+function epochScale(w) {
+  return scaleLog([INIT_X, d.meta.epochs], [0, w]);
+}
+
+/** Mark where the log axis actually begins, so the init point is not read as
+ * "epoch 0.5". */
+function initRule(plot, x, h) {
+  const at = x(Math.sqrt(INIT_X * 1));
   plot
     .append("line")
-    .attr("class", "bound")
-    .attr("x1", 0)
-    .attr("x2", w)
-    .attr("y1", y(bound.v))
-    .attr("y2", y(bound.v));
+    .attr("class", "crosshair")
+    .attr("x1", at)
+    .attr("x2", at)
+    .attr("y1", 0)
+    .attr("y2", h)
+    .attr("stroke-dasharray", "2 3");
   plot
     .append("text")
     .attr("class", "bound-label")
-    .attr("x", w)
-    .attr("y", y(bound.v) - 5)
-    .attr("text-anchor", "end")
-    .text(bound.text);
+    .attr("x", x(INIT_X))
+    .attr("y", h + 14)
+    .attr("text-anchor", "middle")
+    .text("init");
+}
 
-  const idx = d.epochs.map((_, i) => i).slice(first);
-  const bandLayer = plot.append("g");
-  const lineLayer = plot.append("g");
-  const labelLayer = plot.append("g");
-
-  // One generator per layer, so nothing depends on mutable state while drawing.
-  const mkLine = (k) =>
-    line()
-      .x((i) => x(d.epochs[i]))
-      .y((i) => y(d.layerAgg(k)[key][i]));
-  const mkArea = (k) =>
-    area()
-      .x((i) => x(d.epochs[i]))
-      .y0((i) => y(Math.max(0, d.layerAgg(k)[key][i] - d.layerAgg(k)[sdKey][i])))
-      .y1((i) => y(Math.min(max, d.layerAgg(k)[key][i] + d.layerAgg(k)[sdKey][i])));
-
-  const bandPaths = d.layers.map((_, k) =>
-    bandLayer.append("path").attr("class", `band ${lclass(k)}`).attr("d", mkArea(k)(idx))
-  );
-  const linePaths = d.layers.map((_, k) =>
-    lineLayer.append("path").attr("class", `series-line ${lclass(k)}`).attr("d", mkLine(k)(idx))
-  );
-
-  const endText = endLabels
-    ? d.layers.map((name, k) =>
-        labelLayer
-          .append("text")
-          .attr("class", "point-label")
-          .attr("x", w + 5)
-          .attr("y", y(d.layerAgg(k)[key][d.nEpochs - 1]) + 4)
-          .text(short(name))
-      )
-    : [];
-
-  const cross = plot
-    .append("line")
-    .attr("class", "crosshair")
-    .attr("y1", 0)
-    .attr("y2", h)
-    .attr("display", "none");
-
-  const hit = plot.append("rect").attr("width", w).attr("height", h).attr("fill", "transparent");
-  const toIdx = (px) => {
-    const target = x.invert(px);
-    let best = first;
-    let bd = Infinity;
-    for (const i of idx) {
-      const dd = Math.abs(Math.log(d.epochs[i]) - Math.log(target));
-      if (dd < bd) {
-        bd = dd;
-        best = i;
+function logExtent(pick) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const name of W) {
+    const v = pick(name);
+    for (const i of defined()) {
+      if (Number.isFinite(v[i]) && v[i] > 0) {
+        lo = Math.min(lo, v[i]);
+        hi = Math.max(hi, v[i]);
       }
     }
-    return best;
-  };
+  }
+  return [lo, hi];
+}
 
-  hit.on("pointermove", (event) => {
-    const r = hit.node().getBoundingClientRect();
-    state.hoverIdx = toIdx(event.clientX - r.left);
-    charts.forEach((c) => c.paintCross());
-    const i = state.hoverIdx;
-    tip.show(
-      event.clientX,
-      event.clientY,
-      `Epoch ${d.epochs[i].toLocaleString("en-US")} — I(X;T) , I(T;Y)`,
-      d.layers
-        .map((name, k) => ({ k, name }))
-        .filter(({ k }) => state.visible[k])
-        .map(({ k, name }) => ({
-          layer: k,
-          name: short(name),
-          value: `${bits(d.layerAgg(k).ixt[i])} , ${bits(d.layerAgg(k).ity[i])}`,
-        }))
-    );
-  });
-  hit.on("pointerleave", () => {
-    state.hoverIdx = null;
-    charts.forEach((c) => c.paintCross());
-    tip.hide();
-  });
+function buildNorms(width) {
+  const host = document.getElementById("norms");
+  const height = Math.max(320, Math.min(520, Math.round(width * 0.5)));
+  const { plot, w, h } = frame(host, { width, height, margin: { left: 78, right: 24, top: 16 } });
 
-  // Keyboard parity: the chart is focusable and the arrow keys walk the crosshair.
-  host.tabIndex = 0;
-  host.setAttribute("role", "application");
-  host.setAttribute("aria-label", `${yLabel} against epoch. Arrow keys move the crosshair.`);
-  host.addEventListener("keydown", (e) => {
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    e.preventDefault();
-    const cur = state.hoverIdx == null ? first : state.hoverIdx;
-    state.hoverIdx = Math.max(first, Math.min(d.nEpochs - 1, cur + (e.key === "ArrowRight" ? 1 : -1)));
-    charts.forEach((c) => c.paintCross());
-    const r = host.getBoundingClientRect();
-    const i = state.hoverIdx;
-    tip.show(
-      r.left + 56 + x(d.epochs[i]),
-      r.top + 40,
-      `Epoch ${d.epochs[i].toLocaleString("en-US")} — I(X;T) , I(T;Y)`,
-      d.layers
-        .map((name, k) => ({ k, name }))
-        .filter(({ k }) => state.visible[k])
-        .map(({ k, name }) => ({
-          layer: k,
-          name: short(name),
-          value: `${bits(d.layerAgg(k).ixt[i])} , ${bits(d.layerAgg(k).ity[i])}`,
-        }))
-    );
-  });
+  const idx = defined();
+  const x = epochScale(w);
+  // One scale for both quantities: the figure's whole content is where the mean
+  // curve crosses the spread curve, which a separate scale per quantity would
+  // destroy.
+  const [mlo, mhi] = logExtent(mean);
+  const [slo, shi] = logExtent(spread);
+  const y = scaleLog([Math.min(mlo, slo) * 0.8, Math.max(mhi, shi) * 1.25], [h, 0]);
 
-  return {
-    paint() {
-      const keepLabel = selectiveLabels(
-        d.layers.map((_, k) => (state.visible[k] ? y(d.layerAgg(k)[key][d.nEpochs - 1]) : NaN))
-      );
-      d.layers.forEach((_, k) => {
-        const on = state.visible[k];
-        const emph = state.emphasis == null || state.emphasis === k;
-        linePaths[k].attr("display", on ? null : "none").classed("dim", !emph);
-        // A band per layer by default would be a stack of overlapping washes; show one
-        // on legend hover, or all on explicit request.
-        const showBand = on && (state.allBands || state.emphasis === k);
-        bandPaths[k].attr("display", showBand ? null : "none");
-        if (endText[k])
-          endText[k].attr("display", on && keepLabel.has(k) ? null : "none").classed("dim", !emph);
-      });
-    },
-    paintCross() {
-      const i = state.hoverIdx;
-      if (i == null) return cross.attr("display", "none");
-      cross.attr("display", null).attr("x1", x(d.epochs[i])).attr("x2", x(d.epochs[i]));
-    },
+  gridY(plot, y, w, 5);
+  xAxis(plot, x, { w, h, label: "Training epoch (log scale)", ticks: 6, tickFormat: epochTick });
+  yAxis(plot, y, {
+    h,
+    label: state.normalize ? "‖gradient‖ / ‖W‖  (log scale)" : "‖gradient‖  (log scale)",
+    ticks: 6,
+    tickFormat: decade,
+  });
+  initRule(plot, x, h);
+
+  const mk = (v) =>
+    line()
+      .defined((i) => Number.isFinite(v[i]) && v[i] > 0)
+      .x((i) => xpos(x, d.epochs[i]))
+      .y((i) => y(v[i]));
+
+  // Measured first, faint; the smoothed curve goes on top of it.
+  const draw = (v, cls) => plot.append("path").attr("class", cls).attr("d", mk(v)(idx));
+  const means = W.map((name, k) => [
+    draw(mean(name), `series-line raw ${CLS(k)}`),
+    draw(smooth(mean(name)), `series-line ${CLS(k)}`),
+  ]);
+  const stds = W.map((name, k) => [
+    draw(spread(name), `series-line raw dashed ${CLS(k)}`),
+    draw(smooth(spread(name)), `series-line dashed ${CLS(k)}`),
+  ]);
+
+  return function render() {
+    W.forEach((_, k) => {
+      const on = state.visible[k];
+      const emph = state.emphasis == null || state.emphasis === k;
+      for (const p of [...means[k], ...stds[k]]) {
+        p.attr("display", on ? null : "none").classed("dim", !emph);
+      }
+    });
   };
 }
 
-function summaryTable(first) {
-  tableView(document.getElementById("table"), {
-    summary: `Table view — per-layer summary over ${d.nSeeds} seeds`,
+function buildSnr(width) {
+  const host = document.getElementById("snr");
+  const height = Math.max(280, Math.min(440, Math.round(width * 0.42)));
+  const { plot, w, h } = frame(host, { width, height, margin: { left: 78, right: 24, top: 16 } });
+
+  const idx = defined();
+  const x = epochScale(w);
+  const snr = Object.fromEntries(W.map((name) => [name, d.grads[name].snr]));
+  const y = scaleLog(logExtent((name) => snr[name]), [h, 0]).nice();
+
+  gridY(plot, y, w, 5);
+  xAxis(plot, x, { w, h, label: "Training epoch (log scale)", ticks: 6, tickFormat: epochTick });
+  yAxis(plot, y, { h, label: "gradient SNR  ‖mean‖ / spread", ticks: 6, tickFormat: decade });
+  initRule(plot, x, h);
+
+  // SNR = 1 is where the mean gradient and the batch-to-batch noise are equal:
+  // the paper's drift-to-diffusion transition, read off the crossing rather than
+  // asserted. Drawn as a bound, not a series.
+  if (y.domain()[0] <= 1 && 1 <= y.domain()[1]) {
+    plot
+      .append("line")
+      .attr("class", "bound")
+      .attr("x1", 0)
+      .attr("x2", w)
+      .attr("y1", y(1))
+      .attr("y2", y(1));
+    plot
+      .append("text")
+      .attr("class", "bound-label")
+      .attr("x", 4)
+      .attr("y", y(1) - 5)
+      .text("SNR = 1 — mean gradient equals the batch-to-batch noise");
+  }
+
+  const mk = (v) =>
+    line()
+      .defined((i) => Number.isFinite(v[i]) && v[i] > 0)
+      .x((i) => xpos(x, d.epochs[i]))
+      .y((i) => y(v[i]));
+  const draw = (v, cls) => plot.append("path").attr("class", cls).attr("d", mk(v)(idx));
+
+  const lines = W.map((name, k) => [
+    draw(snr[name], `series-line raw ${CLS(k)}`),
+    draw(smooth(snr[name]), `series-line ${CLS(k)}`),
+  ]);
+
+  return function render() {
+    W.forEach((_, k) => {
+      const on = state.visible[k];
+      const emph = state.emphasis == null || state.emphasis === k;
+      for (const p of lines[k]) {
+        p.attr("display", on ? null : "none").classed("dim", !emph);
+      }
+    });
+    table();
+  };
+}
+
+/** Where each weight matrix's SNR last crosses 1, which is the transition the
+ * paper marks with a single grey line for the whole network.
+ *
+ * Read off the SMOOTHED SNR, not the measured one: a curve that crosses 1
+ * fourteen times while it wanders across the line has no single crossing epoch,
+ * and the number the paper reports is the one a reader takes off the figure.
+ */
+function table() {
+  const idx = defined();
+  const unit = state.normalize ? "/‖W‖" : "";
+  tableView(document.getElementById("grad-table"), {
+    summary: "Table view — gradient statistics, and where each matrix crosses SNR = 1",
     columns: [
-      "Layer",
-      "I(X;T) at epoch 1",
-      "I(X;T) peak",
-      "peak epoch",
-      "I(X;T) final",
-      "compressed",
-      "I(T;Y) final",
+      "Weights",
+      "Peak SNR",
+      "at epoch",
+      "Last SNR = 1 crossing",
+      `Final ‖mean‖${unit}`,
+      `Final spread${unit}`,
     ],
-    rows: d.layers.map((name, k) => {
-      const a = d.layerAgg(k);
-      let pi = first;
-      for (let i = first; i < d.nEpochs; i++) if (a.ixt[i] > a.ixt[pi]) pi = i;
+    swatchFor: CLS,
+    rows: W.map((name, k) => {
+      const s = smooth(d.grads[name].snr);
+      let best = -Infinity;
+      let bestAt = null;
+      let crossing = null;
+      let prev = null;
+      for (const i of idx) {
+        const v = s[i];
+        if (!Number.isFinite(v)) continue;
+        if (v > best) {
+          best = v;
+          bestAt = d.epochs[i];
+        }
+        if (prev != null && prev >= 1 && v < 1) crossing = d.epochs[i];
+        prev = v;
+      }
+      const last = idx[idx.length - 1];
       return {
         layer: k,
         cells: [
           name,
-          bits(a.ixt[first]),
-          bits(a.ixt[pi]),
-          d.epochs[pi].toLocaleString("en-US"),
-          bits(a.ixt[d.nEpochs - 1]),
-          bits(a.ixt[pi] - a.ixt[d.nEpochs - 1]),
-          bits(a.ity[d.nEpochs - 1]),
+          best.toFixed(2),
+          bestAt == null ? "—" : bestAt.toLocaleString("en-US"),
+          crossing == null ? "never above 1" : crossing.toLocaleString("en-US"),
+          mean(name)[last].toExponential(2),
+          spread(name)[last].toExponential(2),
         ],
       };
     }),

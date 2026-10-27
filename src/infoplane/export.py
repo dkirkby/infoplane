@@ -12,6 +12,7 @@ zipped against them.  ``metadata.epochs`` keeps the total training length.
 from __future__ import annotations
 
 import json
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,8 @@ def build_payload(
     for r in results:
         if r.layer_names != layers or not np.array_equal(r.epochs, epochs):
             raise ValueError("results disagree on layers or checkpoint epochs")
+        if r.weight_names != results[0].weight_names:
+            raise ValueError("results disagree on weight matrices")
 
     ixt = np.stack([r.ixt for r in results])  # (seeds, layers, checkpoints)
     ity = np.stack([r.ity for r in results])
@@ -87,6 +90,50 @@ def build_payload(
         for key in ("train_loss", "test_loss", "train_acc", "test_acc")
     }
 
+    # Figure 4: the gradient statistics, aggregated over seeds only. Unlike the
+    # trajectories these are not kept per seed -- the figure is one curve per
+    # weight matrix, and 50 x 6 x n_checkpoints of them would roughly double the
+    # file for something nothing plots.
+    gradients = {}
+    if results[0].grad_mean is not None:
+        wnames = results[0].weight_names
+        g_mean = np.stack([r.grad_mean for r in results])      # (seeds, layers, ck)
+        g_std = np.stack([r.grad_std for r in results])
+        w_norm = np.stack([r.weight_norm for r in results])
+        # The initialisation checkpoint has no gradients, so its column is all-NaN
+        # and nanmean warns about an empty slice. NaN is the right answer there.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            # The MEDIAN over seeds, not the mean, is what the figure plots.
+            # These norms are log-distributed across initialisations -- at epoch 0
+            # the spread of a 50-seed ensemble covers more than a decade, because
+            # the backpropagated signal is a product of five random matrices -- so
+            # an arithmetic mean sits near the largest few seeds and is not a
+            # typical network. The paper's own figure is a single run. The mean is
+            # kept alongside for anyone who wants it.
+            # Figure 4's caption normalises each curve by that layer's weight
+            # norm, so both forms are exported.  The division happens HERE, per
+            # seed, and not on the aggregate in the frontend: ||g|| and ||W||
+            # are correlated across seeds, so a ratio of medians is not the
+            # median of the ratio.  Which one the figure should plot is a
+            # separate question -- see the note in `fig4.js`.
+            n_mean = g_mean / w_norm
+            n_std = g_std / w_norm
+            gradients = {
+                name: {
+                    "mean": _r(np.nanmedian(g_mean[:, wi], axis=0), 8),
+                    "mean_amean": _r(np.nanmean(g_mean[:, wi], axis=0), 8),
+                    "mean_sd": _r(np.nanstd(g_mean[:, wi], axis=0), 8),
+                    "std": _r(np.nanmedian(g_std[:, wi], axis=0), 8),
+                    "std_amean": _r(np.nanmean(g_std[:, wi], axis=0), 8),
+                    "std_sd": _r(np.nanstd(g_std[:, wi], axis=0), 8),
+                    "mean_norm": _r(np.nanmedian(n_mean[:, wi], axis=0), 8),
+                    "std_norm": _r(np.nanmedian(n_std[:, wi], axis=0), 8),
+                    "weight_norm": _r(np.nanmedian(w_norm[:, wi], axis=0), 6),
+                }
+                for wi, name in enumerate(wnames)
+            }
+
     worst, n_viol, n_total = zip(*(dpi_stats(r.ixt) for r in results))
 
     h_x = entropy(np.unique(dataset.X, axis=0, return_inverse=True)[1].reshape(-1))
@@ -111,8 +158,10 @@ def build_payload(
         "bounds": {"H_X": round(h_x, round_to), "H_Y": round(h_y, round_to)},
         "epochs": [int(e) for e in epochs],
         "layers": layers,
+        "weight_layers": results[0].weight_names,
         "runs": runs,
         "aggregated": aggregated,
+        "gradients": gradients,
         "curves": curves,
         "diagnostics": {
             "max_dpi_violation_bits": round(max(worst), 6),

@@ -28,7 +28,14 @@
      Validated as a pair in both modes: worst CVD dE 24.7 light / 26.8 dark. */
   --cat-1: #2a78d6;
   --cat-2: #eb6834;
-  /* Slots 4-6, used ONLY by Figure 2, where the four plotted series are
+  /* Slots 3-6. Figure 2 plots a SCATTER, where any two marks can be neighbours,
+     so it takes the subset that clears the ALL-PAIRS gate: 1/4/5/6. Figure 4
+     plots LINES, gated on the ADJACENT pairlist instead, so it may use the
+     catalogue order 1-6 straight through: worst adjacent CVD dE 9.1 light /
+     8.4 dark, normal-vision 19.6 / 19.3. Three of the light-mode hues fall under
+     3:1 against the surface, which obliges the relief rule -- Figure 4 ships a
+     table view.
+     What follows is Figure 2's subset, where the four plotted series are
      identified categorically rather than by depth. Slots 1,4,5,6 are the subset
      of the catalogue that clears the all-pairs gate (scatter) in both modes:
      worst CVD dE 13.0 light / 6.9 dark, normal-vision 19.6 / 19.3. The dark 6.9
@@ -36,6 +43,7 @@
      Figure 2 mark also carries a per-series SHAPE. Light-mode yellow (2.11:1)
      and magenta (2.62:1) fall under 3:1, which obliges the relief rule: the
      direct labels on the ensemble means and the table view both ship. */
+  --cat-3: #1baf7a;
   --cat-4: #eda100;
   --cat-5: #e87ba4;
   --cat-6: #008300;
@@ -67,6 +75,7 @@
     --accent: #d95926;
     --cat-1: #3987e5;
     --cat-2: #d95926;
+    --cat-3: #199e70;
     --cat-4: #c98500;
     --cat-5: #d55181;
     --cat-6: #008300;
@@ -92,6 +101,7 @@
   --accent: #d95926;
   --cat-1: #3987e5;
   --cat-2: #d95926;
+  --cat-3: #199e70;
   --cat-4: #c98500;
   --cat-5: #d55181;
   --cat-6: #008300;
@@ -217,7 +227,21 @@ button[aria-pressed="true"], .toggle[aria-pressed="true"] {
    they overlap; the ring is part of the hit target, never a separating border. */
 .dot { stroke: var(--surface-1); stroke-width: 2; }
 .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+/* Figure 4 distinguishes a layer's mean gradient from its batch-to-batch spread
+   by line style, not by colour: the colour is already carrying depth, and the
+   paper draws the pair the same way. */
+.series-line.dashed { stroke-dasharray: 5 4; stroke-width: 1.75; }
+/* Figure 4 again: the curve as measured, under the smoothed one. Thin and faint
+   so the smoothing is visible as a claim about the data rather than hidden -- a
+   reader can see how much checkpoint-to-checkpoint noise was averaged away. */
+.series-line.raw { stroke-width: 1; opacity: 0.25; }
+.series-line.raw.dashed { stroke-dasharray: 2 3; }
+.series-line.raw.dim { opacity: 0.06; }
 .band { stroke: none; fill-opacity: 0.1; }
+/* An inline switch that changes what a chart plots, not what it shows: it sits
+   in the card head beside the title, at label size. */
+.switch { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; }
+.switch input { accent-color: var(--accent); }
 .dim { opacity: 0.16; }
 /* The layer chain at one epoch. Neutral and dashed, not the accent: it is not a
    series, and in Figure 2 the accent orange would sit next to the categorical
@@ -235,6 +259,10 @@ button[aria-pressed="true"], .toggle[aria-pressed="true"] {
 .epoch-path-halo.mean { stroke-width: 6; }
 .crosshair { stroke: var(--text-secondary); stroke-width: 1; shape-rendering: crispEdges; }
 .point-label { fill: var(--text-secondary); font-size: 10.5px; font-weight: 600; }
+/* A note that is a list of findings rather than a paragraph. */
+ul.note { padding-left: 1.1rem; margin: 0 0 0.75rem; }
+ul.note li { margin-bottom: 0.3rem; }
+
 /* Figure 2's direct labels carry more weight than elsewhere: they are the only
    always-visible naming of a series, and they are what discharges the relief
    rule for the two low-contrast light-mode hues. */
@@ -251,7 +279,8 @@ button[aria-pressed="true"], .toggle[aria-pressed="true"] {
 .l4 { --c: var(--layer-4); } .l5 { --c: var(--layer-5); } .l6 { --c: var(--layer-6); }
 .l7 { --c: var(--layer-7); }
 .c1 { --c: var(--cat-1); } .c2 { --c: var(--cat-2); }
-.c4 { --c: var(--cat-4); } .c5 { --c: var(--cat-5); } .c6 { --c: var(--cat-6); }
+.c3 { --c: var(--cat-3); } .c4 { --c: var(--cat-4); }
+.c5 { --c: var(--cat-5); } .c6 { --c: var(--cat-6); }
 .dot, .band { fill: var(--c); }
 .series-line { stroke: var(--c); }
 

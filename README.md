@@ -271,7 +271,7 @@ until `infoplane fetch` and `infoplane run` have produced the exports.
 | `index.html` | Headline numbers, train/test accuracy against epoch, and the caveats below. |
 | `fig2.html` | The plane with one mark per (seed, layer) at a scrubbed epoch; hovering traces one seed through all five layers. |
 | `fig3.html` | The plane at four training-set fractions as small multiples; all four exports load up front, since the figure is the comparison between them. |
-| `fig4.html` | Both quantities against epoch on a log axis, with ±1σ bands on demand and a shared crosshair. |
+| `fig4.html` | The paper's Figure 4: each weight matrix's mean minibatch gradient against its batch-to-batch spread, log-log, plus their ratio. |
 
 ### Design decisions worth keeping
 
@@ -480,10 +480,68 @@ there, the thing to look at is the output-layer quantisation, named above, and n
 loosened tolerance. **Check that rate before trusting a run**: a
 short `verify` run is not representative, since violations appear well into training.
 
+**Figure 4 measures the gradients, not the information.** At every checkpoint epoch the
+pipeline also records, per weight *matrix* (six of them: `input->L1` … `L5->Output`), the
+norm of the mean minibatch gradient, the batch-to-batch spread `√(E‖g − E[g]‖²)`, and the
+matrix's own L2 norm. The gradients are read inside the batch loop before `opt.step()`, so
+they are the gradients the optimiser actually applied. This follows IDNNs
+`plots/plot_gradients.py` and `networks/network.py`, with four differences, all checked:
+
+- **They read the gradient *after* the step.** Their batch loop runs
+  `sess.run([optimizer, accuracy], feed)` and only then `sess.run([grads, ...], feed)` on
+  the same batch, so every gradient they save is taken at the weights that batch has
+  already been stepped to. Measured both ways here (scratch experiment, 4 seeds, 2,000
+  epochs, Adam 4e-4 and SGD 0.4): it moves the SNR by under 30% at every epoch and changes
+  no conclusion. We read before the step, which is the quantity §5.2 argues about.
+- Their plotting loop **accumulates**: `y_var = np.sum(cov_traces_all, axis=0)` sits inside
+  the `for layer` loop, so each curve they draw is the running total over all layers up to
+  that one, and it then plots `sqrt` of values that are already square roots. Partial sums
+  are nested by construction, and the published figure's curves are not nested — they lie
+  on top of each other for 100 epochs and then separate — so the figure was produced by
+  some other version of that file. We store per-layer values.
+- **The caption says normalized and the figure is not.** Figure 4's caption reads
+  "normalized by the L2 norms of the weights for each layer", but `calc_weights_norms`
+  builds `flatted_list = [1]`, returns 1 for every layer, and its call site is commented
+  out. Both forms are exported (`mean`/`std` and `mean_norm`/`std_norm`, the latter
+  divided **per seed**, since ‖g‖ and ‖W‖ are correlated across seeds and a ratio of
+  medians is not a median of ratios), and `fig4.html` plots the undivided ones with a
+  toggle. Dividing is what breaks the figure here: ‖W‖ for `L5->Output` starts four times
+  smaller than `input->L1`'s — 3 weights against 120 — and grows 14× as that layer
+  converges, so the ratio lifts its curve above the others early and crushes it below them
+  late. Undivided, the six curves start coincident and end ordered by depth, which is what
+  the published figure shows.
+- **Their curves are smoothed and ours were not.** The published curves have no
+  checkpoint-to-checkpoint noise at all; ‖E[g]‖ under Adam swings by tens of percent
+  between adjacent log-spaced checkpoints, and **a median over seeds does not remove it**:
+  every seed steps through the same fixed contiguous minibatches in the same order, so
+  they swing together. Measured (16 seeds, scatter about a running geometric mean):
+  one seed jitters 32% for `input->L1`, the 16-seed median still jitters 23%, where
+  seed-independent noise would have left 8% — two thirds of it is common-mode. The deepest
+  two matrices are the other way round (13% → 4%, independent prediction 3%). `fig4.js`
+  draws a geometric mean over a ±0.07-decade window of epochs on top of the measured
+  curve, which is left visible underneath. `plot_gradients.py` imports `statsmodels` and
+  never uses it.
+
+What it shows here (smoothed curves, median over 50 seeds): the SNR peaks at epochs 115,
+127 and 130 for the three deepest matrices and falls back through 1 at 142, 240 and 832,
+while the three nearest the input never exceed 1 at all — 0.31, 0.32, 0.37 at their peaks.
+The paper marks a single transition for the whole network at ~350 epochs. The earlier peak
+is the same optimiser-driven epoch-axis shift as everywhere else in this replication; the
+*spread* of the transition across layers is not something the paper's single line allows
+for. Two further gaps stay open and are stated on the page rather than tuned away: at the
+untrained network the SNR is already 0.29–0.33 for every matrix, where the paper opens two
+orders of magnitude above 1 (SGD at 0.4 and the authors' after-the-step measurement were
+both tried; neither lifts it above 1), and only the three shallowest matrices' spread
+rises over training (27x, 17x, 7x, peaking near epoch 1,500) while the three deepest peak
+inside 70 epochs and then fall one to two orders of magnitude as the network converges.
+
 ## Export schema (the Phase 1 → Phase 2 contract)
 
 ```
 {
+  "weight_layers": ["input->L1", ... "L5->Output"],   # one per weight MATRIX
+  "gradients":   { "<weight layer>": { mean, std, mean_norm, std_norm,   # per seed /||W||
+                                       mean_sd, std_sd, weight_norm } },
   "metadata":    { every TrainConfig field, plus dataset_name, n_samples, seeds,
                    checkpoints, generated_utc, infoplane_version },
   "bounds":      { "H_X": 12.0, "H_Y": 0.9992 },     # axis ceilings for the frontend

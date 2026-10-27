@@ -72,6 +72,9 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     g.add_argument("--shuffle-batches", action="store_true",
                    help="reshuffle minibatches each epoch; the authors cut fixed "
                         "contiguous batches once and reuse them (default: off)")
+    g.add_argument("--no-grad-stats", action="store_true",
+                   help="skip the minibatch-gradient statistics behind Figure 4 "
+                        "(they are only collected at checkpoint epochs)")
     g.add_argument("--no-measure-output", action="store_true",
                    help="measure only the hidden layers; by default the readout is "
                         "measured too, as the paper's highest layer and as IDNNs does")
@@ -112,6 +115,7 @@ def _config(args: argparse.Namespace) -> TrainConfig:
         split=args.split,
         shuffle_batches=args.shuffle_batches,
         measure_output=not args.no_measure_output,
+        grad_stats=not args.no_grad_stats,
         mi_on=args.mi_on,
         device=args.device,
     )

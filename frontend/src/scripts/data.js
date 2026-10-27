@@ -34,8 +34,38 @@ function prepare(raw) {
     };
   }
 
+  // Figure 4: the minibatch-gradient statistics, one entry per weight matrix.
+  // BOTH forms are carried: `mean`/`std` are the norms as measured, and
+  // `meanNorm`/`stdNorm` are those norms divided by the matrix's own weight
+  // norm, which is what the paper's caption describes. Phase 1 does that
+  // division per seed, before the median over seeds, so these are not
+  // reconstructable here by dividing one aggregate by another; older exports
+  // that predate the `mean_norm` key fall back to exactly that, which is close
+  // but not identical. The SNR is the ratio of the two curves and is the same
+  // number either way.
+  const weightLayers = raw.weight_layers ?? [];
+  const grads = {};
+  for (const name of weightLayers) {
+    const g = raw.gradients?.[name];
+    if (!g) continue;
+    const mean = Float32Array.from(g.mean, num);
+    const std = Float32Array.from(g.std, num);
+    const wnorm = Float32Array.from(g.weight_norm, num);
+    const over = (a) => a.map((v, i) => v / wnorm[i]);
+    grads[name] = {
+      mean,
+      std,
+      meanNorm: g.mean_norm ? Float32Array.from(g.mean_norm, num) : over(mean),
+      stdNorm: g.std_norm ? Float32Array.from(g.std_norm, num) : over(std),
+      snr: mean.map((v, i) => v / std[i]),
+      weightNorm: wnorm,
+    };
+  }
+
   return {
     meta: raw.metadata,
+    weightLayers,
+    grads,
     bounds: raw.bounds,
     diagnostics: raw.diagnostics,
     curves: raw.curves,

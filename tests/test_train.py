@@ -237,3 +237,102 @@ def test_output_probabilities_are_the_softmax_pair_whatever_the_readout():
     p = net.output_probs(torch.rand(32, PAPER_HIDDEN_WIDTHS[-1]) * 2 - 1)
     assert p.shape == (32, 2)
     assert torch.allclose(p.sum(dim=1), torch.ones(32), atol=1e-6)
+
+
+# --- the gradient statistics behind Figure 4 ---
+
+
+def test_gradient_stats_are_recorded_per_weight_matrix():
+    """One curve per connection, which is one more than the number of hidden layers.
+
+    The paper's Figure 4 plots (input,L1), (L1,L2) ... (L5,output); the authors
+    take the even entries of `tf.trainable_variables()`, which is the same set
+    because weights are appended before biases for each layer.
+    """
+    dataset = make_quadric()
+    cfg = TrainConfig(epochs=6, log_points=4)
+    r = run_seed(dataset, cfg, seed=0)
+
+    assert r.weight_names == ["input->L1", "L1->L2", "L2->L3", "L3->L4", "L4->L5", "L5->Output"]
+    assert len(r.weight_names) == len(cfg.widths) + 1
+    assert r.grad_mean.shape == r.grad_std.shape == (len(r.weight_names), len(r.epochs))
+
+    assert np.all(np.isfinite(r.grad_mean)) and np.all(r.grad_mean > 0)
+    assert np.all(np.isfinite(r.grad_std)) and np.all(r.grad_std > 0)
+
+
+def test_the_init_checkpoint_is_measured_before_any_step():
+    """Figure 4's left edge is the untrained network, and it has to stay untrained.
+
+    Taking it after the first epoch instead loses the largest part of the rise the
+    figure is about: Adam steps by ~lr whatever the gradient is, so by the end of
+    epoch 1 the weights have left the symmetric initialisation and the
+    batch-to-batch spread is already an order of magnitude up.
+    """
+    dataset = make_quadric()
+    cfg = TrainConfig(epochs=4, log_points=3)
+    r = run_seed(dataset, cfg, seed=0)
+
+    fresh = InfoPlaneNet(dataset.n_features, cfg.widths, n_out=1, seed=0)
+    init_norms = np.array([float(w.detach().norm()) for w in fresh.weight_matrices()])
+    assert np.allclose(r.weight_norm[:, 0], init_norms, rtol=1e-6)
+    assert np.all(np.isfinite(r.grad_std[:, 0])) and np.all(r.grad_std[:, 0] > 0)
+    # The next checkpoint is after training, so its norms must have moved.
+    assert not np.allclose(r.weight_norm[:, 1], init_norms, rtol=1e-6)
+
+
+def test_gradient_spread_is_zero_without_minibatches():
+    # The std is the batch-to-batch spread, so one batch per epoch must give
+    # exactly zero -- if it does not, the quantity is measuring something else.
+    dataset = make_quadric()
+    r = run_seed(dataset, TrainConfig(epochs=3, log_points=3, batch_size=0), seed=0)
+    assert np.allclose(r.grad_std[:, 1:], 0.0)
+    assert np.all(r.grad_mean[:, 1:] > 0)
+
+
+def test_weight_norms_are_the_frobenius_norms_at_the_checkpoint():
+    # Figure 4's caption normalises by these, so they have to be the norms of the
+    # weights as they stand at the checkpoint, not some running average.
+    dataset = make_quadric()
+    cfg = TrainConfig(epochs=4, log_points=3)
+    torch.manual_seed(0)
+    r = run_seed(dataset, cfg, seed=0)
+    net = InfoPlaneNet(dataset.n_features, cfg.widths, n_out=1, seed=0)
+    # At the first checkpoint the network has trained, so the norms must have
+    # moved off their initial values but stay the same order of magnitude.
+    init = np.array([float(w.detach().norm()) for w in net.weight_matrices()])
+    final = r.weight_norm[:, -1]
+    assert np.all(np.isfinite(final)) and np.all(final > 0)
+    assert not np.allclose(final, init)
+    assert np.all(final < 5 * init)
+
+
+def test_grad_stats_can_be_switched_off():
+    dataset = make_quadric()
+    r = run_seed(dataset, TrainConfig(epochs=3, log_points=3, grad_stats=False), seed=0)
+    assert np.all(np.isnan(r.grad_mean)) and np.all(np.isnan(r.grad_std))
+
+
+def test_the_normalised_gradient_curves_divide_per_seed_not_per_aggregate():
+    """Figure 4's caption divides by ||W||; the division has to happen per seed.
+
+    ||g|| and ||W|| are correlated across initialisations, so a ratio of medians
+    is not the median of the ratios -- and the frontend only ever sees the
+    aggregate, which is why both forms are exported rather than one plus the
+    weight norms to divide by.
+    """
+    dataset = make_quadric()
+    cfg = TrainConfig(epochs=4, log_points=3)
+    results = [run_seed(dataset, cfg, seed=s) for s in range(3)]
+    payload = build_payload(dataset, cfg, results)
+
+    g = np.stack([r.grad_mean for r in results])
+    w = np.stack([r.weight_norm for r in results])
+    for wi, name in enumerate(results[0].weight_names):
+        got = np.asarray(payload["gradients"][name]["mean_norm"])
+        want = np.nanmedian(g[:, wi] / w[:, wi], axis=0)
+        assert got == pytest.approx(want, rel=1e-5)
+        # the raw norms stay alongside, undivided
+        assert payload["gradients"][name]["mean"] == pytest.approx(
+            np.nanmedian(g[:, wi], axis=0), rel=1e-5
+        )

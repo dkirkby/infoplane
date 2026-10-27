@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Figure 4 · Information plane</title>
-    <meta name="description" content="Mutual information against training epoch, with ensemble spread and a shared crosshair." />
+    <meta name="description" content="The mean and spread of each weight matrix's minibatch gradients over training, and the drift-to-diffusion transition they mark." />
     <link rel="stylesheet" href="./src/styles/main.css" />
   </head>
   <body>
@@ -15,54 +15,164 @@
           <a href="./index.html">Overview</a>
           <a href="./fig2.html">Fig 2 · Seeds</a>
           <a href="./fig3.html">Fig 3 · Train size</a>
-          <a href="./fig4.html" aria-current="page">Fig 4 · Over time</a>
+          <a href="./fig4.html" aria-current="page">Fig 4 · Gradients</a>
         </nav>
         <button id="theme" type="button">Theme: system</button>
       </div>
     </header>
     <main class="wrap">
-      <h1>Figure 4 — information over training time</h1>
+      <h1>Figure 4 — the gradients, and the two phases of SGD</h1>
       <p class="lede">
-        The two quantities against epoch, on a logarithmic axis because the fitting phase
-        is over within the first hundred epochs and compression takes thousands. Hover anywhere to
-        read every layer at that epoch; hover a layer in the legend to see its spread across
-        the 50 seeds.
+        This figure is not about information. For each of the six weight matrices it plots
+        the norm of the <em>mean</em> minibatch gradient against the norm of their
+        <em>spread</em>, on log-log axes, starting from the untrained network. The paper's
+        claim is that the mean dominates early — SGD drifting downhill — and is later
+        swamped by batch-to-batch noise, so the weights diffuse under the error constraint;
+        that second phase is the mechanism it offers for compression. <strong>This run
+        reproduces the shape but not the claim</strong>: see below.
       </p>
 
-      <div class="controls">
-        <div class="control">
-          <button id="band" type="button" aria-pressed="false">Show ±1σ band for all layers</button>
-        </div>
-        <div class="control"><span class="note" id="hint">Hover the plot for a crosshair readout.</span></div>
+      <div class="panel-head">
+        <div id="legend"></div>
+        <p class="note" id="provenance"></p>
       </div>
 
       <section class="card">
         <div class="card-head">
           <div>
-            <h2>I(X;T) — bits about the input</h2>
-            <p class="note">Rises during fitting, then falls for thousands of epochs: the compression phase.</p>
+            <h2>Mean gradient and its spread, per weight matrix</h2>
+            <p class="note" id="gradnote"></p>
           </div>
-          <p class="note" id="provenance"></p>
+          <label class="switch">
+            <input type="checkbox" id="normalize" />
+            divide by ‖W‖
+          </label>
         </div>
-        <div class="plot" id="ixt"></div>
+        <p class="note">Solid: ‖mean gradient‖. Dashed: the batch-to-batch spread of the same matrix. Faint: the same curves before smoothing.</p>
+        <div class="plot" id="norms"></div>
       </section>
 
       <section class="card">
         <div class="card-head">
           <div>
-            <h2>I(T;Y) — bits about the label</h2>
-            <p class="note">Rises to the ceiling H(Y) and stays there while I(X;T) is still falling.</p>
+            <h2>Gradient SNR</h2>
+            <p class="note">
+              The ratio of the two curves above. Where it falls through 1, the mean gradient
+              stops being larger than the noise around it — the paper marks one such
+              transition at ~350 epochs for the whole network.
+            </p>
           </div>
         </div>
-        <div class="plot" id="ity"></div>
-        <div id="legend"></div>
-        <div id="table"></div>
+        <div class="plot" id="snr"></div>
+        <div id="grad-table"></div>
       </section>
 
       <p class="note">
-        Two charts, one shared x-axis — never one chart with two y-scales. I(X;T) spans 0–12
-        bits and I(T;Y) spans 0–1; putting them on a common axis would invent a relationship
-        between two scales whose alignment is arbitrary.
+        <strong>Six curves, not five.</strong> There is one per weight <em>matrix</em>, so a
+        five-hidden-layer network has six: (input, L1), (L1, L2), (L2, L3), (L3, L4),
+        (L4, L5) and (L5, output). The authors take the even entries of
+        <code>tf.trainable_variables()</code>, which is the same set, because the weights of
+        each layer are registered before its biases.
+      </p>
+
+      <p class="note">
+        <strong>Why the median, not the mean, over seeds.</strong> These norms are
+        log-distributed across initialisations — the backpropagated signal is a product of
+        five random matrices, and at epoch 0 a 50-seed ensemble spans more than a decade —
+        so an arithmetic mean sits near the largest few seeds and is not a typical network.
+        The paper's own figure is a single run.
+      </p>
+
+      <p class="note">
+        <strong>How these are measured.</strong> At each checkpoint epoch, the gradient of
+        the loss on every minibatch of that epoch is recorded at the weights that minibatch
+        was evaluated at — the gradient the optimiser is about to apply, read before it
+        steps. The mean is ‖E[g]‖ and the spread is √(E‖g − E[g]‖²), which is the authors'
+        <code>sqrt(trace(cov))</code> written without building the covariance matrix. The
+        authors read theirs <em>after</em> the step instead — their training loop runs the
+        optimiser and then asks for the gradients on the same batch again — which was
+        measured here and moves the SNR by under 30% at every epoch, in either optimiser.
+      </p>
+
+      <p class="note">
+        <strong>The caption says normalized; the figure is not.</strong> Figure 4's caption
+        reads "the values are normalized by the L2 norms of the weights for each layer,
+        which significantly increase during the optimization". The authors' released code
+        does not divide: <code>calc_weights_norms</code> builds <code>flatted_list = [1]</code>
+        and returns 1 for every layer, with the real body commented out, and its call site
+        is commented out too. Dividing is also what breaks the ordering. ‖W‖ for
+        (L5, output) starts four times <em>smaller</em> than ‖W‖ for (input, L1) — three
+        weights against a hundred and twenty — and then grows fourteenfold as that layer
+        converges, so the ratio lifts its curve above all the others at the start and
+        crushes it below them at the end. Undivided, the six curves start on top of each
+        other and end ordered by depth, which is what the published figure shows. The
+        toggle above puts the division back.
+      </p>
+
+      <p class="note">
+        <strong>Why the paper's curves are smoother.</strong> Not because of more seeds.
+        This page already takes a median over 50 networks where the paper's figure is a
+        single run, and the noise that is left is mostly <em>not</em> averageable over
+        seeds: every network steps through the same fixed contiguous minibatches in the
+        same order, so they swing together. Measured directly — 16 seeds, the scatter of
+        ‖E[g]‖ about a running geometric mean — one seed's curve jitters by 32% for
+        (input, L1) and the 16-seed median still jitters by 23%, where noise independent
+        across seeds would have left 8%. Two thirds of it is common to every network, and
+        no number of seeds removes it. An average over a window of <em>epochs</em> does,
+        and that is what the bold curve is. <code>plot_gradients.py</code> imports
+        <code>statsmodels</code> and never uses it, which is where a lowess smoother would
+        have gone.
+      </p>
+
+      <p class="note">
+        <strong>And it sums over layers.</strong> Worth knowing before trusting any detail
+        of that file against the figure: inside its loop over layers,
+        <code>plot_gradients.py</code> plots <code>y_mean = np.sum(means_all, axis=0)</code>,
+        where <code>means_all</code> has just had the current layer appended — so the curve
+        it draws for layer <em>k</em> is the running sum over layers 1…<em>k</em>, and the
+        spread curve is the square root of a running sum of spreads. Partial sums are
+        nested by construction, each strictly above the last. The published figure is not:
+        its six mean curves lie on top of each other for the first hundred epochs and then
+        separate with (input, L1) on top. So the figure was made by some other version of
+        this file, and the released one cannot be used to settle what it plots.
+      </p>
+
+      <p class="note">
+        <strong>What this run shows, against the paper.</strong> Three differences, none
+        of which went away under anything tried here.
+      </p>
+      <ul class="note">
+        <li><strong>There is no drift phase at the start.</strong> At the untrained network
+          the SNR is already 0.29–0.33 for every matrix — the mean gradient is
+          <em>smaller</em> than its own batch-to-batch spread before a single step. The
+          paper's figure opens with the mean two orders of magnitude above the spread.
+          Neither the optimiser nor the measurement point explains it: SGD at 0.4 in place
+          of Adam, and reading the gradient after the step as the authors do, both leave
+          the SNR under 1 at every epoch of the first hundred.</li>
+        <li><strong>The transition is per-layer, not global.</strong> The three matrices
+          nearest the input never rise above SNR 1 at all; the three deepest peak at
+          epochs 115, 127 and 130 and fall back through 1 at 142, 240 and 832. The paper
+          marks one transition for the whole network, at ~350 epochs.</li>
+        <li><strong>Only the shallow matrices' spread rises.</strong> It grows 27× for
+          (input, L1), 17× for (L1, L2) and 7× for (L2, L3), all peaking around epoch
+          1,500. The three deepest barely move — 1.7×, 1.1×, 1.0× — peak inside the first
+          70 epochs, and then fall by one to two orders of magnitude as the network
+          converges. In the paper all six rise together, by about three orders of
+          magnitude.</li>
+      </ul>
+
+      <p class="note">
+        The earlier peak is consistent with the rest of this replication — the information
+        plane turns at ~85 epochs rather than ~350 — and follows from the optimiser the
+        authors' code uses, Adam at 4e-4, rather than the plain SGD the paper's text
+        describes and whose gradient noise this argument is about. The missing drift phase
+        is not explained by that, and it is not a measurement artifact: the estimator agrees
+        to every digit with a hand computation, and the quantity plotted is the paper's own
+        definition. One contributor is identifiable — the authors' minibatches are
+        contiguous slices of a file ordered by input pattern, so they differ systematically
+        in label balance (p(y=1) = 0.22 … 0.65) and inflate the spread about fourfold
+        against shuffled batches, which is the one setting under which our epoch-0 spread
+        matches the paper's. It is not enough to account for the rest.
       </p>
     </main>
     <script type="module" src="./src/scripts/fig4.js"></script>

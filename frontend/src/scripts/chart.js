@@ -139,7 +139,7 @@ export function yAxis(plot, y, { h, label, ticks = 5, tickFormat }) {
       .attr("class", "axis-title")
       .attr("transform", "rotate(-90)")
       .attr("x", -h / 2)
-      .attr("y", -36)
+      .attr("y", -(label.length > 24 ? 52 : 36))
       .attr("text-anchor", "middle")
       .text(label);
 }

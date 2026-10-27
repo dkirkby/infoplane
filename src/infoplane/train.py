@@ -95,6 +95,7 @@ class TrainConfig:
     split: str = "head"
     shuffle_batches: bool = False
     measure_output: bool = True
+    grad_stats: bool = True
     mi_on: str = "all"
     device: str = "cpu"
 
@@ -117,6 +118,10 @@ class SeedResult:
     test_acc: np.ndarray
     n_train: int
     seconds: float
+    weight_names: list[str] = field(default_factory=list)
+    grad_mean: np.ndarray | None = None   # (n_weight_matrices, n_checkpoints)
+    grad_std: np.ndarray | None = None
+    weight_norm: np.ndarray | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
 
@@ -216,6 +221,24 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
     n_ck = len(checkpoints)
     ixt = np.zeros((n_layers, n_ck))
     ity = np.zeros((n_layers, n_ck))
+
+    # Figure 4: the minibatch-gradient statistics, per weight matrix.  The
+    # authors collect the gradient of the loss on every minibatch of a checkpoint
+    # epoch, at the weights that minibatch was evaluated at, and reduce them to
+    # two numbers per layer (IDNNs `plots/plot_gradients.py`):
+    #
+    #   mean = || E_b[g_b] ||           the norm of the mean gradient
+    #   std  = sqrt( E_b || g_b - E_b[g_b] ||^2 )
+    #
+    # The second is their `sqrt(trace(mean_cov_mat))`, written without building
+    # the covariance matrix: the trace of the mean outer product *is* the mean
+    # squared deviation, and the matrix is (n_weights x n_weights), which for the
+    # first layer would be 120x120 per checkpoint for no gain.
+    weights = model.weight_matrices()
+    n_wl = len(weights)
+    grad_mean = np.full((n_wl, n_ck), np.nan)
+    grad_std = np.full((n_wl, n_ck), np.nan)
+    weight_norm = np.full((n_wl, n_ck), np.nan)
     curves = {k: np.zeros(n_ck) for k in ("train_loss", "test_loss", "train_acc", "test_acc")}
     due = {int(e): i for i, e in enumerate(checkpoints)}
 
@@ -226,9 +249,6 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
         curves["train_loss"][slot], curves["train_acc"][slot] = _evaluate(model, Xtr, Ytr, loss_fn, binary)
         curves["test_loss"][slot], curves["test_acc"][slot] = _evaluate(model, Xte, Yte, loss_fn, binary)
 
-    if 0 in due:
-        measure(due[0])
-
     n_train = len(train_idx)
     batch = n_train if cfg.batch_size in (0, None) else min(cfg.batch_size, n_train)
     # The authors' minibatches are fixed contiguous slices, cut once and reused
@@ -237,18 +257,68 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
     # choice but it is a different noise process, and the compression phase is
     # supposed to be driven by exactly that noise.
     fixed_order = torch.arange(n_train, device=device)
+
+    def batch_loss(sel: torch.Tensor) -> torch.Tensor:
+        logits = model(Xtr[sel])
+        target = Ytr[sel]
+        return loss_fn(logits.squeeze(-1), target.to(logits.dtype)) if binary else loss_fn(logits, target)
+
+    def reduce_grads(per_layer: list[list[torch.Tensor]], slot: int) -> None:
+        for i, grads in enumerate(per_layer):
+            g = torch.stack(grads)                      # (n_batches, n_weights)
+            mean_vec = g.mean(dim=0)
+            grad_mean[i, slot] = float(mean_vec.norm())
+            grad_std[i, slot] = float((g - mean_vec).pow(2).sum(dim=1).mean().sqrt())
+            weight_norm[i, slot] = float(weights[i].detach().norm())
+
+    if 0 in due:
+        measure(due[0])
+        if cfg.grad_stats:
+            # The gradient statistics at the *untrained* network, which is where
+            # the paper's Figure 4 starts and where its two curves are furthest
+            # apart.  They have to be taken without stepping: by the end of the
+            # first epoch Adam has already moved the weights off the symmetric
+            # initialisation -- seven steps of ~lr each, regardless of how small
+            # the gradient is -- and the batch-to-batch spread is an order of
+            # magnitude larger than it was at epoch 0.  Measuring from epoch 1
+            # hides the first and largest part of the rise the figure is about.
+            # Partitioned the same way the first epoch will be, or the epoch-0
+            # point is measuring a different noise process from every point after
+            # it: contiguous batches of this file are sorted by input pattern and
+            # differ systematically in label balance, shuffled ones do not.
+            init_order = (
+                torch.randperm(n_train, device=device) if cfg.shuffle_batches else fixed_order
+            )
+            init_grads: list[list[torch.Tensor]] = [[] for _ in weights]
+            for start in range(0, n_train, batch):
+                sel = init_order[start : start + batch]
+                opt.zero_grad(set_to_none=True)
+                batch_loss(sel).backward()
+                for i, w in enumerate(weights):
+                    init_grads[i].append(w.grad.detach().reshape(-1).clone())
+            opt.zero_grad(set_to_none=True)
+            reduce_grads(init_grads, due[0])
     for epoch in range(1, cfg.epochs + 1):
         order = torch.randperm(n_train, device=device) if cfg.shuffle_batches else fixed_order
+        # Only on checkpoint epochs: keeping every batch's gradient for all 9000
+        # epochs would cost more memory than the whole run.
+        collecting = cfg.grad_stats and epoch in due
+        batch_grads: list[list[torch.Tensor]] | None = [[] for _ in weights] if collecting else None
         for start in range(0, n_train, batch):
             sel = order[start : start + batch]
             opt.zero_grad(set_to_none=True)
-            logits = model(Xtr[sel])
-            target = Ytr[sel]
-            loss = loss_fn(logits.squeeze(-1), target.to(logits.dtype)) if binary else loss_fn(logits, target)
-            loss.backward()
+            batch_loss(sel).backward()
+            if batch_grads is not None:
+                # Read the gradient the optimiser is about to use, before it steps:
+                # this is the gradient at the weights that minibatch saw, which is
+                # what makes the batch-to-batch spread the SGD noise of §5.2.
+                for i, w in enumerate(weights):
+                    batch_grads[i].append(w.grad.detach().reshape(-1).clone())
             opt.step()
         slot = due.get(epoch)
         if slot is not None:
+            if batch_grads is not None:
+                reduce_grads(batch_grads, slot)
             measure(slot)
 
     return SeedResult(
@@ -263,6 +333,10 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
         test_acc=curves["test_acc"],
         n_train=n_train,
         seconds=time.perf_counter() - started,
+        weight_names=model.weight_names(),
+        grad_mean=grad_mean,
+        grad_std=grad_std,
+        weight_norm=weight_norm,
     )
 
 

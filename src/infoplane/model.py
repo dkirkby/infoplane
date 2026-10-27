@@ -108,6 +108,21 @@ class InfoPlaneNet(nn.Module):
             return torch.cat([p, 1.0 - p], dim=1)
         return torch.softmax(logits, dim=1)
 
+    def weight_matrices(self) -> list[torch.nn.Parameter]:
+        """The weight matrices, in depth order, biases excluded.
+
+        One per *connection*, so a five-hidden-layer network has six: the paper's
+        Figure 4 plots a gradient curve for each of these, and the authors' own
+        code takes the even entries of ``tf.trainable_variables()`` (weights are
+        appended before biases per layer), which is the same set.
+        """
+        return [layer.weight for layer in (*self.hidden, self.readout)]
+
+    def weight_names(self) -> list[str]:
+        """``input->L1``, ``L1->L2``, ... ``L5->Output``: one per weight matrix."""
+        names = ["input", *[f"L{i + 1}" for i in range(len(self.hidden))], "Output"]
+        return [f"{a}->{b}" for a, b in zip(names[:-1], names[1:])]
+
     def layer_names(self, include_output: bool = False) -> list[str]:
         names = [f"Layer {i + 1}" for i in range(len(self.hidden))]
         if include_output:

@@ -49,6 +49,12 @@ The pipeline is a straight line, with each module independently testable:
 at checkpoints) → `runner.py` (ensemble over seeds) → `export.py` (JSON contract) →
 `cli.py` (argparse surface).
 
+**Two things are measured at each checkpoint**, not one: the information plane, and the
+minibatch-gradient statistics behind Figure 4 (mean norm, batch-to-batch spread and weight
+norm, per weight *matrix* — six for a five-hidden-layer net). The gradients are read inside
+the batch loop, before `opt.step()`, because the quantity is the gradient the optimiser is
+about to apply.
+
 - **`datasets.py`** — `Dataset` is a frozen dataclass of `(X, Y)` numpy arrays. The default
   `--dataset var_u` is the authors' own `var_u.mat`, fetched and checksummed by
   `fetch_var_u` (their file is `data/var_u.mat`, *not* the `var_u_data.mat` the paper
@@ -78,6 +84,25 @@ Rules that are load-bearing, not taste — a change here needs the same validati
   generated in OKLCH and validated per theme, on `fig4`. Never substitute a
   rainbow palette: depth is ordered. Series that are *not* layers (train vs test) use
   `.c1`/`.c2`, categorical slots 1-2.
+- **`fig4` is categorical too, but on a different gate.** It plots LINES, which are
+  validated on the *adjacent* pairlist rather than all-pairs, so it uses catalogue slots
+  1-6 straight through (worst adjacent CVD ΔE 9.1 light / 8.4 dark). It needs six because
+  it draws twelve lines — a mean and a spread per weight matrix — and six steps of one blue
+  cannot separate six series that keep crossing. Mean vs spread is line style, not colour.
+- **`fig4` plots the gradient norms UNDIVIDED by default**, although Figure 4's caption
+  says "normalized by the L2 norms of the weights for each layer". The authors'
+  `calc_weights_norms` returns 1 and its call site is commented out, and dividing is what
+  destroys the figure: `L5->Output` starts with the smallest ‖W‖ of the six (3 weights)
+  and grows it 14x, which lifts its curve above the others early and crushes it late.
+  Undivided, the curves start coincident and end ordered by depth, as published. The
+  division is a toggle, done per seed in `export.py` (`mean_norm`/`std_norm`) because a
+  ratio of medians is not a median of ratios. Do not "fix" this back to the caption.
+- **`fig4` draws a smoothed curve over the measured one**, a geometric mean over a
+  ±0.07-decade window of epochs, with the measured curve left visible underneath. The
+  checkpoint-to-checkpoint swing in ‖E[g]‖ is real and is *not* removed by the median over
+  seeds: every seed steps through the same fixed minibatches, so they swing together (one
+  seed jitters 32% on `input->L1`, a 16-seed median still 23%, independent noise would
+  leave 8%). More seeds is not the fix; a window of epochs is.
 - **The information-plane scatters (`fig2`, `fig3`) are categorical, not ordinal.** They
   are the pages where any two marks have to be told apart rather than just neighbours, and
   they plot four series. `PLANE_SERIES`, `planeMark`, `pinnedLayers` and `pinnedLabel` in
