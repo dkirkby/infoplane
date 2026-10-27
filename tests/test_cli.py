@@ -84,20 +84,6 @@ def test_verify_passes_on_its_own_defaults():
                  "--num-seeds", "1", "--num-workers", "1"]) == 0
 
 
-def test_arrow_export_round_trips(tmp_path):
-    feather = pytest.importorskip("pyarrow.feather")
-    out = tmp_path / "e.arrow"
-    assert main(["run", *TINY, "--out", str(out), "--format", "arrow"]) == 0
-
-    table = feather.read_table(out)
-    assert table.column_names == ["seed", "layer", "epoch", "IXT", "ITY"]
-    n_ck = len(set(table.column("epoch").to_pylist()))
-    n_series = len(PAPER_HIDDEN_WIDTHS) + 1  # hidden layers + the measured readout
-    assert table.num_rows == 2 * n_series * n_ck  # seeds x layers x checkpoints
-    meta = json.loads(table.schema.metadata[b"metadata"])
-    assert meta["seeds"] == 2 and meta["checkpoints"] == n_ck
-
-
 def test_dpi_thresholds_discriminate_conditioning():
     """Pin the tolerances against the measured runs that motivated them.
 

@@ -17,7 +17,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-arrow = ["pyarrow>=17.0"]
 mnist = ["torchvision>=0.19"]
 
 [project.scripts]

@@ -39,7 +39,6 @@ uv run infoplane arch --outdir data/arch
 | `--input-encoding spin` | Inputs centred to ±1 instead of the authors' raw 0/1. Trains to slightly better test accuracy but shows a markedly weaker fitting phase — see below. |
 | `--optimizer sgd --lr 0.4` | Fits in ~2 epochs. Useful when you only need a converged network (the tests use it); **useless for the figures**, because it collapses the entire epoch axis. |
 | `--dataset quadric` | A synthetic deterministic rule, offline and deliberately harder — see below. Not the paper's problem. |
-| `--format arrow` | Long-format Feather instead of JSON, for large ensembles (needs `uv sync --extra arrow`). |
 
 ## What the paper says vs what the authors ran
 
@@ -766,6 +765,14 @@ the `widths` of each for Figure 5. Prefer additive changes.
    bounded by `log2(n_samples)`, so the full 60k set is both slow and measured against a
    much looser ceiling. It exists to prove the pipeline is dataset-agnostic, and is not
    part of the replication.
+9. **No Arrow/Feather fallback.** `PLAN.md` specified one for exports over ~50 MB. It was
+   implemented and has now been removed: the largest file this project writes is 2 MB, two
+   orders of magnitude inside the budget, so the path never ran. It was also not a drop-in
+   — it carried the per-seed `IXT`/`ITY` rows and the metadata, but not `aggregated`,
+   `gradients` or `curves`, so every page except Figure 2 would have broken on a file
+   written that way. A fallback that is never exercised and would not work is worse than
+   none. If the ensemble ever does outgrow JSON, the honest fix is fewer seeds or fewer
+   checkpoints; the writer prints a warning at the budget.
 
 ## License
 

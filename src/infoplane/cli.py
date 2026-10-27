@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from .datasets import DEFAULT_VAR_U_PATH, build_dataset, fetch_var_u
-from .export import SIZE_WARN_BYTES, build_payload, write_arrow, write_json
+from .export import SIZE_WARN_BYTES, build_payload, write_json
 from .model import PAPER_HIDDEN_WIDTHS
 from .runner import run_ensemble
 from .train import TrainConfig, dpi_stats
@@ -96,7 +96,6 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     g.add_argument("--num-workers", type=int, default=8)
     g.add_argument("--round", type=int, default=5, dest="round_to",
                    help="decimals kept in the export (MI is in bits)")
-    g.add_argument("--format", default="json", choices=("json", "arrow"))
     g.add_argument("--quiet", action="store_true")
 
 
@@ -137,8 +136,8 @@ def _dataset(args: argparse.Namespace):
     )
 
 
-def _write(payload, path: Path, fmt: str, quiet: bool) -> None:
-    size = write_arrow(payload, path) if fmt == "arrow" else write_json(payload, path)
+def _write(payload, path: Path, quiet: bool) -> None:
+    size = write_json(payload, path)
     if not quiet:
         d = payload["diagnostics"]
         print(f"  wrote {path}  ({size / 1e6:.1f} MB)")
@@ -148,16 +147,16 @@ def _write(payload, path: Path, fmt: str, quiet: bool) -> None:
               f"({d['dpi_violations'] / max(d['dpi_measurements'], 1):.4%}; "
               f"a few hairline inversions are an estimator artifact, a large "
               f"fraction is a bug)")
-    if fmt == "json" and size > SIZE_WARN_BYTES:
+    if size > SIZE_WARN_BYTES:
         print(f"  WARNING: {size / 1e6:.0f} MB exceeds the {SIZE_WARN_BYTES / 1e6:.0f} MB budget in "
-              "PLAN.md; re-run with --format arrow or fewer --num-seeds", file=sys.stderr)
+              "PLAN.md; re-run with fewer --num-seeds or --log-points", file=sys.stderr)
 
 
 def _run_one(dataset, cfg: TrainConfig, args: argparse.Namespace, out: Path) -> dict:
     seeds = list(range(args.seed0, args.seed0 + args.num_seeds))
     results = run_ensemble(dataset, cfg, seeds, num_workers=args.num_workers, progress=not args.quiet)
     payload = build_payload(dataset, cfg, results, round_to=args.round_to)
-    _write(payload, out, args.format, args.quiet)
+    _write(payload, out, args.quiet)
     return payload
 
 
@@ -185,8 +184,7 @@ def cmd_sweep(args: argparse.Namespace) -> int:
     index = []
     for n in sizes:
         cfg = replace(base, train_size=n)
-        suffix = "arrow" if args.format == "arrow" else "json"
-        out = outdir / f"trainsize_{n:05d}.{suffix}"
+        out = outdir / f"trainsize_{n:05d}.json"
         if not args.quiet:
             print(f"train size {n}/{dataset.n_samples}:")
         payload = _run_one(dataset, cfg, args, out)
@@ -245,8 +243,7 @@ def cmd_arch(args: argparse.Namespace) -> int:
     for widths in archs:
         k = len(widths)
         cfg = replace(base, widths=widths)
-        suffix = "arrow" if args.format == "arrow" else "json"
-        out = outdir / f"arch_{k}.{suffix}"
+        out = outdir / f"arch_{k}.json"
         if not args.quiet:
             print(f"{k} hidden layer{'s' if k > 1 else ''} {list(widths)}:")
         payload = _run_one(dataset, cfg, args, out)
