@@ -766,3 +766,10 @@ the `widths` of each for Figure 5. Prefer additive changes.
    bounded by `log2(n_samples)`, so the full 60k set is both slow and measured against a
    much looser ceiling. It exists to prove the pipeline is dataset-agnostic, and is not
    part of the replication.
+
+## License
+
+[MIT](LICENSE). The paper this replicates is Shwartz-Ziv & Tishby (2017),
+[arXiv:1703.00810](https://arxiv.org/abs/1703.00810); the authors' own code is
+[IDNNs](https://github.com/ravidziv/IDNNs), and `data/var_u.mat` is fetched from it at
+run time rather than vendored here. Neither is covered by the licence above.
