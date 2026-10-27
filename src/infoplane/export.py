@@ -99,6 +99,8 @@ def build_payload(
         wnames = results[0].weight_names
         g_mean = np.stack([r.grad_mean for r in results])      # (seeds, layers, ck)
         g_std = np.stack([r.grad_std for r in results])
+        s_mean = np.stack([r.step_mean for r in results])
+        s_std = np.stack([r.step_std for r in results])
         w_norm = np.stack([r.weight_norm for r in results])
         # The initialisation checkpoint has no gradients, so its column is all-NaN
         # and nanmean warns about an empty slice. NaN is the right answer there.
@@ -119,6 +121,12 @@ def build_payload(
             # separate question -- see the note in `fig4.js`.
             n_mean = g_mean / w_norm
             n_std = g_std / w_norm
+            # The second reduction (`train.run_seed`): the same two numbers over
+            # the whole training set's gradient at each of the epoch's weight
+            # states, which is the published figure's dotted curve where the
+            # minibatch spread is not.  Both travel so the page can switch.
+            sn_mean = s_mean / w_norm
+            sn_std = s_std / w_norm
             gradients = {
                 name: {
                     "mean": _r(np.nanmedian(g_mean[:, wi], axis=0), 8),
@@ -129,6 +137,15 @@ def build_payload(
                     "std_sd": _r(np.nanstd(g_std[:, wi], axis=0), 8),
                     "mean_norm": _r(np.nanmedian(n_mean[:, wi], axis=0), 8),
                     "std_norm": _r(np.nanmedian(n_std[:, wi], axis=0), 8),
+                    # 12 decimals, not 8: the step spread runs down to 1e-7 and
+                    # below once divided by ||W||, where rounding to 8 would
+                    # leave one significant figure and visibly quantise a log
+                    # axis -- or round a positive value to zero and drop the
+                    # point from the plot entirely.
+                    "step_mean": _r(np.nanmedian(s_mean[:, wi], axis=0), 12),
+                    "step_std": _r(np.nanmedian(s_std[:, wi], axis=0), 12),
+                    "step_mean_norm": _r(np.nanmedian(sn_mean[:, wi], axis=0), 12),
+                    "step_std_norm": _r(np.nanmedian(sn_std[:, wi], axis=0), 12),
                     "weight_norm": _r(np.nanmedian(w_norm[:, wi], axis=0), 6),
                 }
                 for wi, name in enumerate(wnames)

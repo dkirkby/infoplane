@@ -50,10 +50,13 @@ at checkpoints) → `runner.py` (ensemble over seeds) → `export.py` (JSON cont
 `cli.py` (argparse surface).
 
 **Two things are measured at each checkpoint**, not one: the information plane, and the
-minibatch-gradient statistics behind Figure 4 (mean norm, batch-to-batch spread and weight
-norm, per weight *matrix* — six for a five-hidden-layer net). The gradients are read inside
-the batch loop, before `opt.step()`, because the quantity is the gradient the optimiser is
-about to apply.
+gradient statistics behind Figure 4 (mean norm, spread and weight norm, per weight
+*matrix* — six for a five-hidden-layer net). The gradients are read inside the batch loop,
+before `opt.step()`, because the quantity is the gradient the optimiser is about to apply.
+The spread is reduced two ways: over the epoch's minibatches (the paper's definition) and
+over its optimiser steps, the whole training set's gradient at each weight state. The
+second costs one extra full-batch backward pass per step on checkpoint epochs only, and is
+there because the first cannot reproduce the published figure — see the `fig4` rules.
 
 - **`datasets.py`** — `Dataset` is a frozen dataclass of `(X, Y)` numpy arrays. The default
   `--dataset var_u` is the authors' own `var_u.mat`, fetched and checksummed by
@@ -97,6 +100,17 @@ Rules that are load-bearing, not taste — a change here needs the same validati
   Undivided, the curves start coincident and end ordered by depth, as published. The
   division is a toggle, done per seed in `export.py` (`mean_norm`/`std_norm`) because a
   ratio of medians is not a median of ratios. Do not "fix" this back to the caption.
+- **`fig4` offers two reductions of the gradient, and they answer different
+  questions.** The default, `mean`/`std`, is over the epoch's MINIBATCHES, which is
+  what the paper defines. `step_mean`/`step_std` is over the epoch's optimiser
+  STEPS: the whole training set's gradient at each weight state, no minibatch noise
+  in it. The second exists because the first *cannot* produce the published figure —
+  that figure opens at ‖mean‖/spread ≈ 100–220 and for this task the ratio has a
+  hard ceiling near 2.6 (median; max 10.7 over 50 seeds x 6 matrices), set by the
+  labels alone: at init the net answers ~0.5 to every input, so only which labels
+  land in which batch separates one batch's gradient from another's, giving
+  `√B·|p̄ − ȳ|/sd(y) = 2.8`. Do not try to close that gap by tuning; it is not a
+  settings difference. README has the full accounting.
 - **`fig4` draws a smoothed curve over the measured one**, a geometric mean over a
   ±0.07-decade window of epochs, with the measured curve left visible underneath. The
   checkpoint-to-checkpoint swing in ‖E[g]‖ is real and is *not* removed by the median over

@@ -34,15 +34,21 @@ function prepare(raw) {
     };
   }
 
-  // Figure 4: the minibatch-gradient statistics, one entry per weight matrix.
-  // BOTH forms are carried: `mean`/`std` are the norms as measured, and
-  // `meanNorm`/`stdNorm` are those norms divided by the matrix's own weight
-  // norm, which is what the paper's caption describes. Phase 1 does that
-  // division per seed, before the median over seeds, so these are not
-  // reconstructable here by dividing one aggregate by another; older exports
-  // that predate the `mean_norm` key fall back to exactly that, which is close
-  // but not identical. The SNR is the ratio of the two curves and is the same
-  // number either way.
+  // Figure 4: the gradient statistics, one entry per weight matrix. FOUR
+  // curves travel per matrix, because two independent choices are offered.
+  //
+  // Which gradients are compared: `mean`/`std` reduce over the epoch's
+  // MINIBATCHES, which is the quantity the paper defines; `stepMean`/`stepStd`
+  // reduce over the epoch's optimiser STEPS, the whole training set's gradient
+  // re-evaluated at each weight state, which carries no minibatch noise at all
+  // and is the one that reproduces the published figure. `stepStd` has no value
+  // at the init checkpoint -- one weight state, no spread.
+  //
+  // Whether they are divided by ‖W‖: the `*Norm` forms are, which is what the
+  // caption describes. Phase 1 does that division per seed, before the median
+  // over seeds, so they are not reconstructable here by dividing one aggregate
+  // by another; older exports that predate those keys fall back to exactly
+  // that, which is close but not identical.
   const weightLayers = raw.weight_layers ?? [];
   const grads = {};
   for (const name of weightLayers) {
@@ -52,12 +58,19 @@ function prepare(raw) {
     const std = Float32Array.from(g.std, num);
     const wnorm = Float32Array.from(g.weight_norm, num);
     const over = (a) => a.map((v, i) => v / wnorm[i]);
+    const stepMean = g.step_mean ? Float32Array.from(g.step_mean, num) : null;
+    const stepStd = g.step_std ? Float32Array.from(g.step_std, num) : null;
     grads[name] = {
       mean,
       std,
       meanNorm: g.mean_norm ? Float32Array.from(g.mean_norm, num) : over(mean),
       stdNorm: g.std_norm ? Float32Array.from(g.std_norm, num) : over(std),
-      snr: mean.map((v, i) => v / std[i]),
+      stepMean,
+      stepStd,
+      stepMeanNorm: g.step_mean_norm ? Float32Array.from(g.step_mean_norm, num)
+        : stepMean && over(stepMean),
+      stepStdNorm: g.step_std_norm ? Float32Array.from(g.step_std_norm, num)
+        : stepStd && over(stepStd),
       weightNorm: wnorm,
     };
   }

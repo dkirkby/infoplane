@@ -28,8 +28,12 @@
         <em>spread</em>, on log-log axes, starting from the untrained network. The paper's
         claim is that the mean dominates early — SGD drifting downhill — and is later
         swamped by batch-to-batch noise, so the weights diffuse under the error constraint;
-        that second phase is the mechanism it offers for compression. <strong>This run
-        reproduces the shape but not the claim</strong>: see below.
+        that second phase is the mechanism it offers for compression. <strong>The
+        quantity the paper defines cannot produce the figure the paper prints</strong>
+        — the published curves open a hundredfold apart and this one has a ceiling
+        near three — and the reduction that does reproduce it contains no minibatch
+        noise at all. Both are here, behind the control; the notes below are the
+        measurement.
       </p>
 
       <div class="panel-head">
@@ -43,12 +47,21 @@
             <h2>Mean gradient and its spread, per weight matrix</h2>
             <p class="note" id="gradnote"></p>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="normalize" />
-            divide by ‖W‖
-          </label>
+          <div class="switches">
+            <label class="switch">
+              spread between
+              <select id="reduction">
+                <option value="batch">minibatches</option>
+                <option value="step">optimiser steps</option>
+              </select>
+            </label>
+            <label class="switch">
+              <input type="checkbox" id="normalize" />
+              divide by ‖W‖
+            </label>
+          </div>
         </div>
-        <p class="note">Solid: ‖mean gradient‖. Dashed: the batch-to-batch spread of the same matrix. Faint: the same curves before smoothing.</p>
+        <p class="note">Solid: ‖mean gradient‖. Dashed: the spread of the same matrix. Faint: the same curves before smoothing.</p>
         <div class="plot" id="norms"></div>
       </section>
 
@@ -92,6 +105,88 @@
         authors read theirs <em>after</em> the step instead — their training loop runs the
         optimiser and then asks for the gradients on the same batch again — which was
         measured here and moves the SNR by under 30% at every epoch, in either optimiser.
+      </p>
+
+      <p class="note">
+        <strong>The published spread cannot be a spread between minibatches.</strong>
+        At epoch 1 the paper's six mean curves sit at 0.078–0.080 and its six
+        dotted curves at 7.8 × 10⁻⁴ down to 3.5 × 10⁻⁴: the mean gradient is 100
+        to 220 times <em>larger</em> than the batch-to-batch spread. Run the
+        figure's own network — <code>12-10-8-6-4-2</code> with the two-way
+        softmax the authors use — and both of its curves come out with the right
+        <em>shape</em>. Medians over 20 seeds: the mean is flat across the six
+        matrices at 0.024, 0.022, 0.020, 0.016, 0.021, 0.019, where the published
+        ones are flat to within 3%; the spread falls with depth, 0.077 → 0.033,
+        a factor 2.3 against the published 2.2. What is wrong is the gap between
+        the two families. Ours sit at a ratio of 0.33–0.49; the paper's at
+        100–220. That ratio is the thing to compare, because it is the one
+        number here a seed cannot move: the gradient norm itself spans more than
+        a decade across initialisations, and the published 0.078 is an ordinary
+        draw from ours. No batching closes the ratio. Cutting the batches at
+        random instead of contiguously lifts it from a median 0.29 to 1.30 over
+        50 seeds; the <em>ceiling</em>, what it would be if every bit of
+        batch-to-batch disagreement lay along the mean direction and none of it
+        anywhere else, has median 2.6 and never exceeds 10.7.
+      </p>
+
+      <p class="note">
+        <strong>The ceiling is set by the labels, not by the network.</strong>
+        At initialisation this network answers 0.4908 to 0.5070 for every one of
+        the 4,096 inputs — a spread of 0.003 — so each sample's gradient is
+        (p − y) times nearly the same vector, and the only thing that separates
+        one sample from another is which label it carries. The mean of (p − y)
+        is 0.062, its sample-to-sample spread is 0.496, and a batch of 512
+        averages that down to 0.496/√512 = 0.022. The ratio of the two is 2.8,
+        and that is the whole answer: no architecture, initialisation, optimiser
+        or learning rate moves it, because none of them changes the labels. To
+        reach 100 at this label balance you would need 650,000 samples in a
+        batch, 158 times the entire dataset.
+      </p>
+
+      <p class="note">
+        <strong>What does reproduce it: the spread between steps.</strong> Switch
+        the control above to <em>optimiser steps</em> and the dashed curves are
+        reduced over a different collection — the whole training set's gradient,
+        re-evaluated at each of the weight states the epoch passes through. The
+        data is held fixed, so there is no minibatch noise in it at all; what is
+        left is how far the gradient moves because the <em>weights</em> moved.
+        It lands on the published curve:
+      </p>
+      <table class="data note-table">
+        <caption>At epoch 1, median over 50 seeds, against the published figure</caption>
+        <thead><tr><th>per weight matrix</th><th>published</th><th>spread between minibatches</th><th>spread between steps</th></tr></thead>
+        <tbody>
+          <tr><td>(input, L1)</td><td>7.8 × 10⁻⁴</td><td>4.5 × 10⁻²</td><td>3.6 × 10⁻⁴</td></tr>
+          <tr><td>(L5, output)</td><td>3.5 × 10⁻⁴</td><td>2.9 × 10⁻²</td><td>2.6 × 10⁻⁴</td></tr>
+          <tr><td>‖mean‖ / spread</td><td>100 – 220</td><td>0.29 – 0.35</td><td>35 – 43</td></tr>
+        </tbody>
+      </table>
+      <p class="note">
+        It goes on matching: the six ratios peak at 77–432, where the published
+        curves open 100–220 apart, and the spread climbs from 1.3 × 10⁻⁴ to
+        7.3 × 10⁻², a factor of 560 where the published curve climbs about a
+        thousand. The transition is late rather than absent — the crossings land
+        at epochs 797 to 1,532 against the paper's single line at ~350, and
+        (L5, output) never falls through 1 at all. The minibatch spread does none of this — it starts above the
+        mean and stays there. What this does <em>not</em> establish is that it is
+        what the authors ran: their released training loop feeds each batch's own
+        rows to <code>tf.gradients</code>, and the one-line change that would
+        produce this instead — feeding the whole training set — is not in the
+        file we have. It is the only reduction tried here that lands in the
+        published range, and it is reached through the control rather than made
+        the default, because the minibatch spread is the quantity the paper
+        <em>defines</em>.
+      </p>
+
+      <p class="note">
+        <strong>And it would explain the transition.</strong> Adam's step is
+        scale-free: it moves each weight by about the learning rate whatever the
+        gradient's size. Early on the gradient is large and seven steps barely
+        disturb it, so the step spread is tiny; late on the gradient has shrunk
+        by two orders of magnitude while the steps have not, so an epoch's worth
+        of them swings the gradient further than the gradient itself. A ratio
+        that starts near 100 and falls through 1 follows from that alone, with
+        no appeal to SGD noise — which is the mechanism §5.2 rests on.
       </p>
 
       <p class="note">
@@ -142,13 +237,15 @@
         of which went away under anything tried here.
       </p>
       <ul class="note">
-        <li><strong>There is no drift phase at the start.</strong> At the untrained network
-          the SNR is already 0.29–0.33 for every matrix — the mean gradient is
-          <em>smaller</em> than its own batch-to-batch spread before a single step. The
-          paper's figure opens with the mean two orders of magnitude above the spread.
-          Neither the optimiser nor the measurement point explains it: SGD at 0.4 in place
-          of Adam, and reading the gradient after the step as the authors do, both leave
-          the SNR under 1 at every epoch of the first hundred.</li>
+        <li><strong>There is no drift phase at the start</strong>, and there cannot
+          be one. At the untrained network the SNR is already 0.29–0.33 for every
+          matrix — the mean gradient is <em>smaller</em> than its own batch-to-batch
+          spread before a single step — where the paper's figure opens two orders of
+          magnitude the other way. Nothing closes that: not SGD at 0.4 in place of
+          Adam, not reading the gradient after the step as the authors do, not
+          shuffling the batches, not the figure's own architecture. The ceiling
+          above says why. This is the one difference from the paper that is not a
+          matter of settings.</li>
         <li><strong>The transition is per-layer, not global.</strong> The three matrices
           nearest the input never rise above SNR 1 at all; the three deepest peak at
           epochs 115, 127 and 130 and fall back through 1 at 142, 240 and 832. The paper
@@ -166,13 +263,14 @@
         plane turns at ~85 epochs rather than ~350 — and follows from the optimiser the
         authors' code uses, Adam at 4e-4, rather than the plain SGD the paper's text
         describes and whose gradient noise this argument is about. The missing drift phase
-        is not explained by that, and it is not a measurement artifact: the estimator agrees
-        to every digit with a hand computation, and the quantity plotted is the paper's own
-        definition. One contributor is identifiable — the authors' minibatches are
-        contiguous slices of a file ordered by input pattern, so they differ systematically
-        in label balance (p(y=1) = 0.22 … 0.65) and inflate the spread about fourfold
-        against shuffled batches, which is the one setting under which our epoch-0 spread
-        matches the paper's. It is not enough to account for the rest.
+        is not explained by that, and it is not a measurement artifact: these norms
+        were recomputed from per-sample gradients, one sample at a time, and agree
+        with the training loop's numbers to six figures. One contributor to the size
+        of our spread is identifiable — the authors' minibatches are contiguous
+        slices of a file ordered by input pattern, so they differ systematically in
+        label balance (p(y=1) = 0.22 … 0.65) and inflate it about fourfold against
+        shuffled batches. That is a factor of four against a factor of three
+        hundred, and the notes above are where the rest of it goes.
       </p>
     </main>
     <script type="module" src="./src/scripts/fig4.js"></script>

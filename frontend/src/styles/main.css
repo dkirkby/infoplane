@@ -242,6 +242,8 @@ button[aria-pressed="true"], .toggle[aria-pressed="true"] {
    in the card head beside the title, at label size. */
 .switch { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; }
 .switch input { accent-color: var(--accent); }
+.switch select { font: inherit; color: var(--text-primary); background: var(--surface-1); border: 1px solid var(--border); border-radius: 5px; padding: 0.15rem 0.3rem; }
+.switches { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
 .dim { opacity: 0.16; }
 /* The layer chain at one epoch. Neutral and dashed, not the accent: it is not a
    series, and in Figure 2 the accent orange would sit next to the categorical
@@ -340,6 +342,10 @@ table.data thead th { color: var(--text-secondary); font-weight: 600; position: 
 table.data td { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 table.data td:first-child { font-family: var(--sans); }
 table.data .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 0.45rem; }
+/* A table that is prose, not a chart's table view: it sits in the notes and is
+   sized by its content rather than by the column it is in. */
+table.data.note-table { width: auto; max-width: 72ch; margin: 0.25rem 0 1.25rem; }
+table.data caption { caption-side: top; text-align: left; color: var(--text-secondary); font-size: 0.8rem; padding-bottom: 0.35rem; }
 
 /* ---- stat tiles ---- */
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }

@@ -30,7 +30,19 @@
  *    the others early and crushes it below them late. Undivided, the six curves
  *    start on top of each other and end ordered by depth, which is what the
  *    published figure shows. The toggle puts the division back.
- * 2. A smoothed curve is drawn over the measured one (faint, behind). The
+ * 2. The spread can be reduced over the epoch's optimiser STEPS instead of its
+ *    minibatches. That second quantity holds the data fixed -- it is the whole
+ *    training set's gradient, re-evaluated at each weight state the epoch passes
+ *    through -- so it contains no minibatch noise at all, only the gradient
+ *    moving because the weights moved. It is here because the minibatch spread
+ *    the paper DEFINES cannot produce the figure the paper PRINTS: that figure
+ *    opens with ‖mean‖/spread near 100, and for this task that ratio has a hard
+ *    ceiling near 3. Whichever batches you cut, each one carries its own share
+ *    of the two labels, and that alone puts a floor under the disagreement
+ *    between batches. The step spread has no such floor, starts ~100x under the
+ *    mean, climbs three orders of magnitude, and crosses -- which is the
+ *    published shape. See the notes on fig4.html.
+ * 3. A smoothed curve is drawn over the measured one (faint, behind). The
  *    published figure has no checkpoint-to-checkpoint noise at all, and the
  *    quantity it plots does: with Adam, ||E[g]|| swings by 50% between adjacent
  *    log-spaced checkpoints late in training, and a median over 50 seeds does
@@ -64,7 +76,7 @@ const epochTick = (v) => (v < 1 || decade(v) === "" ? "" : v.toLocaleString("en-
 
 initTheme(document.getElementById("theme"));
 
-const state = { visible: null, emphasis: null, normalize: false };
+const state = { visible: null, emphasis: null, normalize: false, reduction: "batch" };
 let d = null;
 let W = [];
 let width = 0;
@@ -82,6 +94,19 @@ load("data/infoplane.json").then((data) => {
     state.normalize = box.checked;
     rebuild();
   });
+
+  const pick = document.getElementById("reduction");
+  // An export made before the step reduction existed still plots: the control
+  // disappears rather than offering a curve that is not in the file.
+  if (!d.grads[W[0]]?.stepStd) {
+    pick.closest("label").hidden = true;
+  } else {
+    pick.value = state.reduction;
+    pick.addEventListener("change", () => {
+      state.reduction = pick.value;
+      rebuild();
+    });
+  }
 
   legend(document.getElementById("legend"), W, {
     classFor: CLS,
@@ -104,7 +129,10 @@ load("data/infoplane.json").then((data) => {
 /** Rebuild both charts: a toggle changes the data, not just what is shown. */
 function rebuild() {
   document.getElementById("gradnote").textContent =
-    `Mean and spread of the per-minibatch gradients of each weight matrix` +
+    (step()
+      ? `Mean and spread of the whole training set's gradient across the ` +
+        `optimiser steps of each epoch`
+      : `Mean and spread of the per-minibatch gradients of each weight matrix`) +
     `${state.normalize ? ", each divided by that matrix's L2 norm" : ""}. ` +
     `Median over ${d.nSeeds} seeds, ${d.meta.batch_size}-sample batches; the bold ` +
     `curve is a geometric mean over a ±${SMOOTH_DECADES}-decade window of epochs.`;
@@ -117,9 +145,30 @@ function rebuild() {
   redraw();
 }
 
-/** The measured curve for one matrix, in whichever form is selected. */
-const mean = (name) => (state.normalize ? d.grads[name].meanNorm : d.grads[name].mean);
-const spread = (name) => (state.normalize ? d.grads[name].stdNorm : d.grads[name].std);
+/** The measured curves for one matrix, in whichever form is selected.
+ *
+ * The mean follows the reduction too: over steps it is the norm of the mean of
+ * the full-training-set gradients, which is not quite the mean of the minibatch
+ * gradients (the last batch is short), and a ratio has to be taken between two
+ * halves of the same collection.
+ */
+const step = () => state.reduction === "step";
+const mean = (name) => {
+  const g = d.grads[name];
+  if (step()) return state.normalize ? g.stepMeanNorm : g.stepMean;
+  return state.normalize ? g.meanNorm : g.mean;
+};
+const spread = (name) => {
+  const g = d.grads[name];
+  if (step()) return state.normalize ? g.stepStdNorm : g.stepStd;
+  return state.normalize ? g.stdNorm : g.std;
+};
+/** ‖mean‖ / spread, from whichever pair is on screen. */
+const snrOf = (name) => {
+  const m = mean(name);
+  const sp = spread(name);
+  return Float64Array.from(m, (v, i) => v / sp[i]);
+};
 
 /** Geometric running mean over a ±SMOOTH_DECADES window of log(epoch).
  *
@@ -161,14 +210,20 @@ const defined = () => d.epochs.map((_, i) => i);
 const INIT_X = 0.5;
 const xpos = (x, e) => x(e === 0 ? INIT_X : e);
 
-/** The shared epoch scale, with room for the init point on the left. */
+/** The shared epoch scale, with room for the init point on the left.
+ *
+ * The step reduction has nothing at init -- one weight state is not a spread --
+ * so there the axis starts at epoch 1 and the break marker is left off, rather
+ * than opening a gap where a point cannot exist.
+ */
 function epochScale(w) {
-  return scaleLog([INIT_X, d.meta.epochs], [0, w]);
+  return scaleLog([step() ? 1 : INIT_X, d.meta.epochs], [0, w]);
 }
 
 /** Mark where the log axis actually begins, so the init point is not read as
  * "epoch 0.5". */
 function initRule(plot, x, h) {
+  if (step()) return;
   const at = x(Math.sqrt(INIT_X * 1));
   plot
     .append("line")
@@ -261,12 +316,17 @@ function buildSnr(width) {
 
   const idx = defined();
   const x = epochScale(w);
-  const snr = Object.fromEntries(W.map((name) => [name, d.grads[name].snr]));
+  const snr = Object.fromEntries(W.map((name) => [name, snrOf(name)]));
   const y = scaleLog(logExtent((name) => snr[name]), [h, 0]).nice();
 
   gridY(plot, y, w, 5);
   xAxis(plot, x, { w, h, label: "Training epoch (log scale)", ticks: 6, tickFormat: epochTick });
-  yAxis(plot, y, { h, label: "gradient SNR  ‖mean‖ / spread", ticks: 6, tickFormat: decade });
+  yAxis(plot, y, {
+    h,
+    label: step() ? "gradient SNR  ‖mean‖ / step spread" : "gradient SNR  ‖mean‖ / spread",
+    ticks: 6,
+    tickFormat: decade,
+  });
   initRule(plot, x, h);
 
   // SNR = 1 is where the mean gradient and the batch-to-batch noise are equal:
@@ -285,7 +345,11 @@ function buildSnr(width) {
       .attr("class", "bound-label")
       .attr("x", 4)
       .attr("y", y(1) - 5)
-      .text("SNR = 1 — mean gradient equals the batch-to-batch noise");
+      .text(
+        step()
+          ? "SNR = 1 — the gradient moves as far within an epoch as its own size"
+          : "SNR = 1 — mean gradient equals the batch-to-batch noise",
+      );
   }
 
   const mk = (v) =>
@@ -334,7 +398,7 @@ function table() {
     ],
     swatchFor: CLS,
     rows: W.map((name, k) => {
-      const s = smooth(d.grads[name].snr);
+      const s = smooth(snrOf(name));
       let best = -Infinity;
       let bestAt = null;
       let crossing = null;

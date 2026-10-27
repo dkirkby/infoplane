@@ -336,3 +336,71 @@ def test_the_normalised_gradient_curves_divide_per_seed_not_per_aggregate():
         assert payload["gradients"][name]["mean"] == pytest.approx(
             np.nanmedian(g[:, wi], axis=0), rel=1e-5
         )
+
+
+def test_the_step_spread_holds_the_data_fixed_and_moves_only_the_weights():
+    """The second reduction behind Figure 4: no minibatch noise in it at all.
+
+    It is the spread of the *whole* training set's gradient across the weight
+    states an epoch passes through, so freezing the optimiser has to flatten it
+    to zero even though the minibatch spread stays large.
+    """
+    dataset = make_quadric()
+    cfg = TrainConfig(epochs=4, log_points=3, lr=0.0)
+    r = run_seed(dataset, cfg, seed=0)
+    assert np.allclose(r.step_std[:, 1:], 0.0, atol=1e-9)
+    assert np.all(r.grad_std[:, 1:] > 0)
+    # With no steps taken, every weight state is the initial one, so the mean of
+    # the collection is just the full-batch gradient.
+    assert np.all(r.step_mean[:, 1:] > 0)
+
+
+def test_the_step_spread_is_not_defined_at_initialisation():
+    # One weight state, no spread -- which is why the paper's figure starts at
+    # epoch 1 and ours leaves the point out rather than drawing a zero.
+    dataset = make_quadric()
+    r = run_seed(dataset, TrainConfig(epochs=3, log_points=3), seed=0)
+    assert np.all(np.isnan(r.step_mean[:, 0])) and np.all(np.isnan(r.step_std[:, 0]))
+    assert np.all(np.isfinite(r.grad_std[:, 0]))
+
+
+def test_the_step_spread_is_far_below_the_batch_spread_early_in_training():
+    # The whole point of the distinction: at the first checkpoints the weights
+    # have barely moved, so the gradient barely moves with them, while the
+    # minibatches disagree with each other from the start.
+    dataset = make_quadric()
+    r = run_seed(dataset, TrainConfig(epochs=4, log_points=4), seed=0)
+    assert np.all(r.step_std[:, 1] < 0.1 * r.grad_std[:, 1])
+
+
+def test_both_gradient_reductions_reach_the_payload():
+    dataset = make_quadric()
+    cfg = TrainConfig(epochs=4, log_points=3)
+    results = [run_seed(dataset, cfg, seed=s) for s in range(3)]
+    payload = build_payload(dataset, cfg, results)
+    s = np.stack([r.step_std for r in results])
+    w = np.stack([r.weight_norm for r in results])
+    for wi, name in enumerate(results[0].weight_names):
+        g = payload["gradients"][name]
+        # the initialisation column has no step spread, and travels as JSON null
+        assert g["step_std"][0] is None and g["step_mean"][0] is None
+        # abs, not rel: the export rounds the step pair to 12 decimals
+        assert g["step_std"][1:] == pytest.approx(np.nanmedian(s[:, wi, 1:], axis=0), abs=1e-12)
+        # normalised per seed, like the minibatch pair
+        assert g["step_std_norm"][1:] == pytest.approx(
+            np.nanmedian(s[:, wi, 1:] / w[:, wi, 1:], axis=0), abs=1e-12
+        )
+
+
+def test_measuring_the_gradients_does_not_perturb_training():
+    """The step reduction backprops the whole training set mid-epoch.
+
+    It has to leave ``.grad`` exactly as the optimiser was about to find it --
+    biases included -- or the measurement would change the run it is measuring.
+    """
+    dataset = make_quadric()
+    kw = dict(epochs=6, log_points=4)
+    on = run_seed(dataset, TrainConfig(**kw), seed=0)
+    off = run_seed(dataset, TrainConfig(**kw, grad_stats=False), seed=0)
+    assert on.train_loss == pytest.approx(off.train_loss, rel=1e-12)
+    assert on.ixt == pytest.approx(off.ixt, rel=1e-12)

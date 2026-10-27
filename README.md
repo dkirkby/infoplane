@@ -271,7 +271,7 @@ until `infoplane fetch` and `infoplane run` have produced the exports.
 | `index.html` | Headline numbers, train/test accuracy against epoch, and the caveats below. |
 | `fig2.html` | The plane with one mark per (seed, layer) at a scrubbed epoch; hovering traces one seed through all five layers. |
 | `fig3.html` | The plane at four training-set fractions as small multiples; all four exports load up front, since the figure is the comparison between them. |
-| `fig4.html` | The paper's Figure 4: each weight matrix's mean minibatch gradient against its batch-to-batch spread, log-log, plus their ratio. |
+| `fig4.html` | The paper's Figure 4: each weight matrix's mean gradient against its spread, log-log, plus their ratio. The spread is reduced over minibatches (default) or over optimiser steps. |
 
 ### Design decisions worth keeping
 
@@ -484,8 +484,11 @@ short `verify` run is not representative, since violations appear well into trai
 pipeline also records, per weight *matrix* (six of them: `input->L1` … `L5->Output`), the
 norm of the mean minibatch gradient, the batch-to-batch spread `√(E‖g − E[g]‖²)`, and the
 matrix's own L2 norm. The gradients are read inside the batch loop before `opt.step()`, so
-they are the gradients the optimiser actually applied. This follows IDNNs
-`plots/plot_gradients.py` and `networks/network.py`, with four differences, all checked:
+they are the gradients the optimiser actually applied. A **second** reduction of the same
+two statistics is recorded alongside — over the epoch's optimiser *steps* rather than its
+minibatches (`step_mean`/`step_std`; see "the spread the paper prints" below). This
+follows IDNNs `plots/plot_gradients.py` and `networks/network.py`, with four differences,
+all checked:
 
 - **They read the gradient *after* the step.** Their batch loop runs
   `sess.run([optimizer, accuracy], feed)` and only then `sess.run([grads, ...], feed)` on
@@ -522,6 +525,54 @@ they are the gradients the optimiser actually applied. This follows IDNNs
   curve, which is left visible underneath. `plot_gradients.py` imports `statsmodels` and
   never uses it.
 
+**The spread the paper prints is not a spread between minibatches.** This is the one
+discrepancy in the whole replication that settings cannot reach. At epoch 1 the published
+figure's six mean curves sit at 0.078–0.080 and its six dotted curves at 7.8e-4 down to
+3.5e-4 — the mean gradient is 100 to 220 times *larger* than the spread. Running the
+figure's own network (`12-10-8-6-4-2` with the authors' two-way softmax) gets the shape of
+both families right (medians over 20 seeds at epoch 0): the mean is flat across the six
+matrices at 0.024, 0.022, 0.020, 0.016, 0.021, 0.019, as the published ones are flat to
+3%; the spread falls with depth 0.077 → 0.033, a factor 2.3 against the published 2.2.
+What is wrong is the gap between them — our ratio is 0.33–0.49 against their 100–220.
+Compare the ratio, not the two curves separately: the gradient norm spans more than a
+decade across initialisations, so the published 0.078 is an ordinary draw from our
+ensemble, while the ratio barely moves. Nothing closes the ratio:
+
+- Cutting batches at random rather than contiguously lifts ‖mean‖/spread at init from a
+  median 0.29 to 1.30 (50 seeds x 6 matrices).
+- The *ceiling* — what the ratio would be if all the batch-to-batch disagreement lay along
+  the mean direction and none of it anywhere else — has median 2.6 and maximum 10.7 over
+  the same 300 cases.
+- The ceiling is a property of the labels, not the network. At init the network answers
+  0.4908–0.5070 to all 4,096 inputs, so each sample's gradient is `(p − y)` times nearly
+  the same vector and only the label distinguishes one sample from another:
+  `√B·|p̄ − ȳ|/sd(y) = √512 × 0.062/0.496 = 2.8`. Reaching 100 would need 650,000 samples
+  per batch, 158x the whole dataset. No architecture, initialiser, optimiser or learning
+  rate moves it.
+
+What *does* land on the published curve is a different collection: the whole training
+set's gradient re-evaluated at each weight state the epoch passes through — same data,
+only the weights moving, no minibatch noise in it at all. At epoch 1, median over 50
+seeds:
+
+| per weight matrix | published | spread between minibatches | spread between steps |
+| --- | --- | --- | --- |
+| `input->L1` | 7.8e-4 | 4.5e-2 | 3.6e-4 |
+| `L5->Output` | 3.5e-4 | 2.9e-2 | 2.6e-4 |
+| ‖mean‖ / spread | 100–220 | 0.29–0.35 | 35–43 |
+
+It keeps matching: the six ratios peak at 77–432 where the published curves open 100–220
+apart, and the spread climbs from 1.3e-4 to 7.3e-2, a factor 560 where the published curve
+climbs about a thousand. The transition is late rather than missing — crossings at epochs
+797 to 1,532 against the paper's single line at ~350, with `L5->Output` never falling
+through 1. It also explains the transition without any appeal to SGD noise: Adam's step is
+scale-free, so early on seven steps barely disturb a large gradient while late on they
+swing a small one further than its own size. This is **not** evidence that it is what the
+authors ran — their released loop feeds each batch's own rows to `tf.gradients` — only
+that it is the sole reduction tried here that reproduces the published numbers.
+`fig4.html` carries both behind a control, defaulting to the minibatch one the paper
+defines.
+
 What it shows here (smoothed curves, median over 50 seeds): the SNR peaks at epochs 115,
 127 and 130 for the three deepest matrices and falls back through 1 at 142, 240 and 832,
 while the three nearest the input never exceed 1 at all — 0.31, 0.32, 0.37 at their peaks.
@@ -531,7 +582,8 @@ is the same optimiser-driven epoch-axis shift as everywhere else in this replica
 for. Two further gaps stay open and are stated on the page rather than tuned away: at the
 untrained network the SNR is already 0.29–0.33 for every matrix, where the paper opens two
 orders of magnitude above 1 (SGD at 0.4 and the authors' after-the-step measurement were
-both tried; neither lifts it above 1), and only the three shallowest matrices' spread
+both tried; neither lifts it above 1, and the ceiling above says why), and only the three
+shallowest matrices' spread
 rises over training (27x, 17x, 7x, peaking near epoch 1,500) while the three deepest peak
 inside 70 epochs and then fall one to two orders of magnitude as the network converges.
 
@@ -541,6 +593,8 @@ inside 70 epochs and then fall one to two orders of magnitude as the network con
 {
   "weight_layers": ["input->L1", ... "L5->Output"],   # one per weight MATRIX
   "gradients":   { "<weight layer>": { mean, std, mean_norm, std_norm,   # per seed /||W||
+                                       step_mean, step_std,           # over steps, not
+                                       step_mean_norm, step_std_norm, #   minibatches
                                        mean_sd, std_sd, weight_norm } },
   "metadata":    { every TrainConfig field, plus dataset_name, n_samples, seeds,
                    checkpoints, generated_utc, infoplane_version },

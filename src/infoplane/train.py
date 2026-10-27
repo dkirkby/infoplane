@@ -121,6 +121,8 @@ class SeedResult:
     weight_names: list[str] = field(default_factory=list)
     grad_mean: np.ndarray | None = None   # (n_weight_matrices, n_checkpoints)
     grad_std: np.ndarray | None = None
+    step_mean: np.ndarray | None = None   # the same two, reduced over steps
+    step_std: np.ndarray | None = None
     weight_norm: np.ndarray | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -234,10 +236,19 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
     # the covariance matrix: the trace of the mean outer product *is* the mean
     # squared deviation, and the matrix is (n_weights x n_weights), which for the
     # first layer would be 120x120 per checkpoint for no gain.
+    #
+    # The same two numbers are also reduced over a second collection -- the
+    # gradient of the WHOLE training set, re-evaluated at each of the epoch's
+    # weight states.  It holds the data fixed and lets only the weights move, so
+    # it contains no minibatch noise at all; it is what the published figure's
+    # dotted curve looks like, which the minibatch spread does not.  See the
+    # note on `fig4.html`.
     weights = model.weight_matrices()
     n_wl = len(weights)
     grad_mean = np.full((n_wl, n_ck), np.nan)
     grad_std = np.full((n_wl, n_ck), np.nan)
+    step_mean = np.full((n_wl, n_ck), np.nan)
+    step_std = np.full((n_wl, n_ck), np.nan)
     weight_norm = np.full((n_wl, n_ck), np.nan)
     curves = {k: np.zeros(n_ck) for k in ("train_loss", "test_loss", "train_acc", "test_acc")}
     due = {int(e): i for i, e in enumerate(checkpoints)}
@@ -263,13 +274,31 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
         target = Ytr[sel]
         return loss_fn(logits.squeeze(-1), target.to(logits.dtype)) if binary else loss_fn(logits, target)
 
-    def reduce_grads(per_layer: list[list[torch.Tensor]], slot: int) -> None:
+    def reduce_grads(
+        per_layer: list[list[torch.Tensor]],
+        slot: int,
+        mean_out: np.ndarray,
+        std_out: np.ndarray,
+    ) -> None:
         for i, grads in enumerate(per_layer):
-            g = torch.stack(grads)                      # (n_batches, n_weights)
+            g = torch.stack(grads)                      # (n_collected, n_weights)
             mean_vec = g.mean(dim=0)
-            grad_mean[i, slot] = float(mean_vec.norm())
-            grad_std[i, slot] = float((g - mean_vec).pow(2).sum(dim=1).mean().sqrt())
-            weight_norm[i, slot] = float(weights[i].detach().norm())
+            mean_out[i, slot] = float(mean_vec.norm())
+            std_out[i, slot] = float((g - mean_vec).pow(2).sum(dim=1).mean().sqrt())
+
+    def full_grads() -> list[torch.Tensor]:
+        """The gradient of the whole training set, leaving ``.grad`` as it was.
+
+        The optimiser is mid-epoch and about to step on the gradients currently
+        in ``.grad`` -- biases included -- so they are put back afterwards.
+        """
+        saved = [None if p.grad is None else p.grad.detach().clone() for p in model.parameters()]
+        opt.zero_grad(set_to_none=True)
+        batch_loss(fixed_order).backward()
+        out = [w.grad.detach().reshape(-1).clone() for w in weights]
+        for p, g in zip(model.parameters(), saved):
+            p.grad = g
+        return out
 
     if 0 in due:
         measure(due[0])
@@ -297,13 +326,19 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
                 for i, w in enumerate(weights):
                     init_grads[i].append(w.grad.detach().reshape(-1).clone())
             opt.zero_grad(set_to_none=True)
-            reduce_grads(init_grads, due[0])
+            reduce_grads(init_grads, due[0], grad_mean, grad_std)
+            for i, w in enumerate(weights):
+                weight_norm[i, due[0]] = float(w.detach().norm())
+            # `step_mean`/`step_std` stay NaN here: no step has been taken, so
+            # there is only one weight state and no spread to measure.  The
+            # paper's own Figure 4 starts at epoch 1 for the same reason.
     for epoch in range(1, cfg.epochs + 1):
         order = torch.randperm(n_train, device=device) if cfg.shuffle_batches else fixed_order
         # Only on checkpoint epochs: keeping every batch's gradient for all 9000
         # epochs would cost more memory than the whole run.
         collecting = cfg.grad_stats and epoch in due
         batch_grads: list[list[torch.Tensor]] | None = [[] for _ in weights] if collecting else None
+        step_grads: list[list[torch.Tensor]] | None = [[] for _ in weights] if collecting else None
         for start in range(0, n_train, batch):
             sel = order[start : start + batch]
             opt.zero_grad(set_to_none=True)
@@ -314,11 +349,19 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
                 # what makes the batch-to-batch spread the SGD noise of §5.2.
                 for i, w in enumerate(weights):
                     batch_grads[i].append(w.grad.detach().reshape(-1).clone())
+            if step_grads is not None:
+                # The same weights, the whole training set: this one moves only
+                # because the optimiser has stepped.
+                for i, g in enumerate(full_grads()):
+                    step_grads[i].append(g)
             opt.step()
         slot = due.get(epoch)
         if slot is not None:
             if batch_grads is not None:
-                reduce_grads(batch_grads, slot)
+                reduce_grads(batch_grads, slot, grad_mean, grad_std)
+                reduce_grads(step_grads, slot, step_mean, step_std)
+                for i, w in enumerate(weights):
+                    weight_norm[i, slot] = float(w.detach().norm())
             measure(slot)
 
     return SeedResult(
@@ -336,6 +379,8 @@ def run_seed(dataset: Dataset, cfg: TrainConfig, seed: int) -> SeedResult:
         weight_names=model.weight_names(),
         grad_mean=grad_mean,
         grad_std=grad_std,
+        step_mean=step_mean,
+        step_std=step_std,
         weight_norm=weight_norm,
     )
 
