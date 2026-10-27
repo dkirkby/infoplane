@@ -212,38 +212,12 @@ def load_matfile(path: str | Path, encoding: str = "binary") -> Dataset:
     )
 
 
-def make_mnist(root: str | Path = "data/mnist", n_samples: int = 4096, seed: int = 0) -> Dataset:
-    """A subsample of MNIST, for sanity-checking that the pipeline is dataset agnostic.
-
-    ``n_samples`` is deliberately small: I(X;T) is bounded by ``log2(n_samples)``
-    and the binning estimator costs O(n_samples log n_samples) per layer per
-    checkpoint, so the full 60k training set is both slow and bound by a much
-    looser ceiling.  Pixels are scaled to ``[-1, 1]``.
-    """
-    from torchvision import datasets  # imported lazily: optional dependency
-
-    mnist = datasets.MNIST(str(root), train=True, download=True)
-    data = mnist.data.numpy().reshape(len(mnist.data), -1).astype(np.float32) / 255.0
-    targets = mnist.targets.numpy().astype(np.int64)
-    rng = np.random.default_rng(seed)
-    idx = rng.choice(len(data), size=min(n_samples, len(data)), replace=False)
-    return Dataset(
-        X=(2.0 * data[idx] - 1.0),
-        Y=targets[idx],
-        name=f"mnist-{len(idx)}",
-        n_classes=10,
-        extras={},
-    )
-
-
 def build_dataset(
     kind: str,
     *,
     n_bits: int = N_TOY_BITS,
     geometry: str = "circle",
     path: str | Path | None = None,
-    n_samples: int = 4096,
-    seed: int = 0,
     encoding: str = "binary",
 ) -> Dataset:
     """Dispatch used by the CLI's ``--dataset`` flag."""
@@ -255,6 +229,4 @@ def build_dataset(
         if path is None:
             raise ValueError("--dataset matfile requires --data-path")
         return load_matfile(path, encoding=encoding)
-    if kind == "mnist":
-        return make_mnist(root=path or "data/mnist", n_samples=n_samples, seed=seed)
     raise ValueError(f"unknown dataset {kind!r}")

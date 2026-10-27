@@ -761,10 +761,14 @@ the `widths` of each for Figure 5. Prefer additive changes.
    thread each. MPS plus `multiprocessing` is also a poor combination.
 7. **The training sizes are separate files** with an identical schema, rather than a
    new axis inside one document, so the frontend can lazy-load only the sizes on screen.
-8. **MNIST is wired up but subsampled** (`--dataset mnist --n-samples 4096`): `I(X;T)` is
-   bounded by `log2(n_samples)`, so the full 60k set is both slow and measured against a
-   much looser ceiling. It exists to prove the pipeline is dataset-agnostic, and is not
-   part of the replication.
+8. **No MNIST.** `PLAN.md` asked for the dataset interface to support alternatives, and a
+   subsampled MNIST was wired up to demonstrate it. It has been removed: it was never part
+   of the replication, had no test covering it, downloaded 10 MB on first use, and was the
+   only reason the project depended on `torchvision` — a second large, torch-version-bound
+   dependency bought for a path nobody ran. `--dataset quadric` already demonstrates the
+   same thing offline, and `--dataset matfile` takes any `.mat` in the authors' layout.
+   The interface itself is unchanged, so adding a dataset is still one function and one
+   `build_dataset` branch.
 9. **No Arrow/Feather fallback.** `PLAN.md` specified one for exports over ~50 MB. It was
    implemented and has now been removed: the largest file this project writes is 2 MB, two
    orders of magnitude inside the budget, so the path never ran. It was also not a drop-in

@@ -43,7 +43,7 @@ ARCH_DEFAULT = "10;10,7;10,7,5;10,7,5,4;10,7,5,4,3;10,7,5,4,4,3"
 def _add_common(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("dataset")
     g.add_argument("--dataset", default="var_u",
-                   choices=("var_u", "quadric", "matfile", "mnist"),
+                   choices=("var_u", "quadric", "matfile"),
                    help="var_u (default) = the authors' own var_u.mat, fetched on demand; "
                         "quadric = a synthetic deterministic rule that is NOT the paper's "
                         "problem, for offline use and contrast")
@@ -55,8 +55,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
                         "with different encodings")
     g.add_argument("--geometry", default="circle", choices=("circle", "sphere"),
                    help="latent dimensionality of the quadric rule (default: circle = 2D)")
-    g.add_argument("--data-path", default=None, help="var_u.mat, or the MNIST root")
-    g.add_argument("--n-samples", type=int, default=4096, help="mnist subsample size")
+    g.add_argument("--data-path", default=None, help="path to var_u.mat")
 
     g = p.add_argument_group("model / training")
     g.add_argument("--widths", default=",".join(map(str, PAPER_HIDDEN_WIDTHS)),
@@ -131,7 +130,6 @@ def _dataset(args: argparse.Namespace):
         n_bits=args.n_bits,
         geometry=args.geometry,
         path=args.data_path,
-        n_samples=args.n_samples,
         encoding=args.input_encoding,
     )
 
