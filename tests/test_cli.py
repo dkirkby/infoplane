@@ -79,6 +79,49 @@ def test_arch_rejects_two_architectures_of_the_same_depth(tmp_path):
         main(["arch", *TINY, "--architectures", "10,7;6,4", "--outdir", str(tmp_path)])
 
 
+def test_publish_writes_the_subset_the_site_fetches(tmp_path):
+    """The committed snapshot keeps per-seed data only where a page plots it.
+
+    Figure 2 is the only page that draws individual seeds, and only from the
+    main export; the sweeps are read through `aggregated`, so their `runs`
+    block is 85% of the bytes for something nothing reads.
+    """
+    src, dest = tmp_path / "data", tmp_path / "site"
+    assert main(["run", *TINY, "--out", str(src / "infoplane.json")]) == 0
+    assert main(["sweep", *TINY, "--train-sizes", "50", "--outdir", str(src / "trainsize")]) == 0
+    assert main(["arch", *TINY, "--architectures", "10", "--outdir", str(src / "arch")]) == 0
+    # not fetched by any page, so not published
+    assert main(["run", *TINY, "--out", str(src / "quadric.json")]) == 0
+
+    assert main(["publish", "--src", str(src), "--dest", str(dest), "--quiet"]) == 0
+
+    assert json.loads((dest / "infoplane.json").read_text())["runs"], "Figure 2 needs its seeds"
+    for sub in ("trainsize", "arch"):
+        files = sorted((dest / sub).glob("*.json"))
+        assert [f.name for f in files] == sorted(f.name for f in (src / sub).glob("*.json"))
+        for f in files:
+            d = json.loads(f.read_text())
+            if "runs" in d:  # the index has none
+                assert d["runs"] == []
+                # everything the pages do read survives
+                assert d["aggregated"] and d["metadata"]["seeds"] == 2 and d["epochs"]
+    assert not (dest / "quadric.json").exists()
+
+
+def test_publish_drops_files_that_are_no_longer_exported(tmp_path):
+    # A removed architecture must not leave a stale panel in the snapshot.
+    src, dest = tmp_path / "data", tmp_path / "site"
+    assert main(["run", *TINY, "--out", str(src / "infoplane.json")]) == 0
+    assert main(["arch", *TINY, "--architectures", "10;10,7", "--outdir", str(src / "arch")]) == 0
+    assert main(["publish", "--src", str(src), "--dest", str(dest), "--quiet"]) == 0
+    assert (dest / "arch" / "arch_2.json").exists()
+
+    (src / "arch" / "arch_2.json").unlink()
+    assert main(["publish", "--src", str(src), "--dest", str(dest), "--quiet"]) == 0
+    assert not (dest / "arch" / "arch_2.json").exists()
+    assert (dest / "arch" / "arch_1.json").exists()
+
+
 def test_verify_passes_on_its_own_defaults():
     assert main(["verify", "--dataset", "quadric", "--quiet",
                  "--num-seeds", "1", "--num-workers", "1"]) == 0

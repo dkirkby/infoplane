@@ -38,6 +38,7 @@ uv run infoplane verify # ~11 s end-to-end run asserting the paper's invariants
 uv run infoplane run --num-seeds 50 --num-workers 8 --out data/infoplane.json   # ~5 min
 uv run infoplane sweep --train-sizes 205,614,1843,3482 --outdir data/trainsize  # Figure 3
 uv run infoplane arch --outdir data/arch                                        # Figure 5
+uv run infoplane publish                # data/ -> frontend/public/data/, after any of the above
 
 cd frontend && npm install && npm run dev     # the figure pages (needs the data above)
 cd frontend && npm run build                  # static site -> frontend/dist
@@ -82,7 +83,17 @@ the old "fitting against compression" page was retired when it was relabelled. `
 is the architecture comparison, fed by `infoplane arch`. Shared
 modules in `src/scripts/`: `chart.js` (frames, axes, legend, tooltip, table view),
 `data.js` (fetch + reshape the export into typed arrays), `scrubber.js`, `theme.js`.
-`public/data` is a symlink to the repo's `data/`, dereferenced into `dist` at build.
+`public/data` is a **committed snapshot**, not a symlink (it was one until the site needed
+to build on a clean clone).
+
+**The two data directories are not interchangeable.** `data/` is gitignored working output
+(21 MB); `frontend/public/data/` is tracked and is what the site is built from (4.5 MB).
+`infoplane publish` writes the second from the first and is the ONLY thing that should:
+never hand-edit the snapshot, and re-run `publish` after any `run`/`sweep`/`arch`, or the
+site keeps showing the previous numbers while `data/` has the new ones. It keeps `runs`
+only in `infoplane.json` — Figure 2 is the one page that plots individual seeds — and
+empties it in the sweeps, which is 85% of their bytes. If a page ever needs per-seed data
+from a sweep, that rule is what has to change, in `export.publish_snapshot`.
 
 Rules that are load-bearing, not taste — a change here needs the same validation:
 

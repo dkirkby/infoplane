@@ -12,6 +12,7 @@ zipped against them.  ``metadata.epochs`` keeps the total training length.
 from __future__ import annotations
 
 import json
+import shutil
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
@@ -198,3 +199,51 @@ def write_json(payload: dict[str, Any], path: str | Path) -> int:
     text = json.dumps(payload, separators=(",", ":"), allow_nan=False)
     path.write_text(text)
     return len(text.encode())
+
+
+# The exports the site fetches, and which of them needs its per-seed block.
+# Figure 2 is the only page that plots individual seeds, and it reads only the
+# main export; every other page reads ``aggregated``.  So the sweeps publish
+# with ``runs`` emptied -- it is 85% of their bytes for something nothing reads.
+# ``quadric.json`` is not published at all: no page fetches it.
+MAIN_EXPORT = "infoplane.json"
+SWEEP_DIRS = ("trainsize", "arch")
+
+
+def publish_snapshot(src: str | Path, dest: str | Path) -> list[tuple[Path, int]]:
+    """Copy the exports the site needs into ``dest``, trimmed for publication.
+
+    ``data/`` is the working output and is gitignored; ``dest`` (the frontend's
+    ``public/data``) is a committed snapshot, so what goes in it is paid for in
+    repository history forever.  Returns ``(path, bytes)`` per file written.
+
+    This is a pure file transform over finished exports -- it never retrains --
+    so republishing after a change to what the site needs costs seconds.
+    """
+    src, dest = Path(src), Path(dest)
+    written: list[tuple[Path, int]] = []
+
+    # Clear only what this function manages, so a removed architecture does not
+    # leave a stale panel behind in the published set.
+    for old in [dest / MAIN_EXPORT, *(f for d in SWEEP_DIRS for f in (dest / d).glob("*.json"))]:
+        old.unlink(missing_ok=True)
+
+    main = src / MAIN_EXPORT
+    if not main.exists():
+        raise FileNotFoundError(f"{main} not found -- run `infoplane run` first")
+    dest.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(main, dest / MAIN_EXPORT)  # keeps `runs`: Figure 2 plots seeds
+    written.append((dest / MAIN_EXPORT, (dest / MAIN_EXPORT).stat().st_size))
+
+    for sub in SWEEP_DIRS:
+        if not (src / sub).is_dir():
+            continue
+        (dest / sub).mkdir(parents=True, exist_ok=True)
+        for f in sorted((src / sub).glob("*.json")):
+            payload = json.loads(f.read_text())
+            if "runs" in payload:
+                payload["runs"] = []
+            out = dest / sub / f.name
+            n = out.write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False))
+            written.append((out, out.stat().st_size))
+    return written

@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from .datasets import DEFAULT_VAR_U_PATH, build_dataset, fetch_var_u
-from .export import SIZE_WARN_BYTES, build_payload, write_json
+from .export import SIZE_WARN_BYTES, build_payload, publish_snapshot, write_json
 from .model import PAPER_HIDDEN_WIDTHS
 from .runner import run_ensemble
 from .train import TrainConfig, dpi_stats
@@ -260,6 +260,23 @@ def cmd_arch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_publish(args: argparse.Namespace) -> int:
+    """Refresh the committed snapshot the site is built from.
+
+    `data/` is gitignored working output; `frontend/public/data` is tracked, so
+    every byte in it is in the repository forever.  This writes the subset the
+    pages actually fetch, with the per-seed `runs` block dropped from the sweeps
+    (85% of their size, read by nothing).  Re-run it after `run`/`sweep`/`arch`.
+    """
+    written = publish_snapshot(args.src, args.dest)
+    total = sum(n for _, n in written)
+    if not args.quiet:
+        for path, n in written:
+            print(f"  {path}  ({n / 1e6:.2f} MB)")
+        print(f"  {len(written)} files, {total / 1e6:.2f} MB")
+    return 0
+
+
 def cmd_fetch(args: argparse.Namespace) -> int:
     """Download the authors' var_u.mat so --dataset var_u can be used."""
     path = fetch_var_u(args.data_path or DEFAULT_VAR_U_PATH, force=args.force)
@@ -333,6 +350,13 @@ def main(argv: list[str] | None = None) -> int:
                         "'One hidden layer'...'Six hidden layers' grid)")
     p.add_argument("--outdir", default="data/arch")
     p.set_defaults(func=cmd_arch)
+
+    p = sub.add_parser("publish", help="refresh the committed data snapshot the site is built from")
+    p.add_argument("--src", default="data", help="where the exports are (default: data)")
+    p.add_argument("--dest", default="frontend/public/data",
+                   help="the tracked snapshot (default: frontend/public/data)")
+    p.add_argument("--quiet", action="store_true")
+    p.set_defaults(func=cmd_publish)
 
     p = sub.add_parser("fetch", help="download the authors' var_u.mat (1 KB, checksummed)")
     p.add_argument("--data-path", default=None, help=f"destination (default: {DEFAULT_VAR_U_PATH})")

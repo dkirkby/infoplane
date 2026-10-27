@@ -9,8 +9,11 @@ wheels/
 # Virtual environments
 .venv
 
-# Generated data products (regenerate with `uv run infoplane run`)
-data/
+# Generated data products (regenerate with `uv run infoplane run`). Anchored to
+# the repo root on purpose: `frontend/public/data` is the committed snapshot the
+# site is built from, written by `infoplane publish`, and an unanchored `data/`
+# would match it too.
+/data/
 *.json.gz
 
 # Node / Vite (phase 2)

@@ -14,9 +14,15 @@ function prepare(raw) {
   const epochs = raw.epochs;
   const nE = epochs.length;
 
-  const seeds = raw.runs.map((r) => r.seed);
+  // The published sweep exports ship with `runs` emptied -- only Figure 2 plots
+  // individual seeds, and only from the main export, so carrying 50 per-seed
+  // trajectories in every panel file would be 85% of the site's bytes for
+  // something nothing reads. `metadata.seeds` is what the pages quote, so it is
+  // read from there rather than counted here.
+  const runs = raw.runs ?? [];
+  const seeds = runs.map((r) => r.seed);
   // seedPts[seed][layer] = { ixt: Float32Array(nE), ity: Float32Array(nE) }
-  const seedPts = raw.runs.map((run) =>
+  const seedPts = runs.map((run) =>
     layers.map((name) => {
       const t = run.trajectories[name];
       return { ixt: Float32Array.from(t.IXT, num), ity: Float32Array.from(t.ITY, num) };
@@ -86,7 +92,7 @@ function prepare(raw) {
     nEpochs: nE,
     layers,
     seeds,
-    nSeeds: seeds.length,
+    nSeeds: raw.metadata?.seeds ?? seeds.length,
     seedPts,
     agg,
     /** Ensemble mean/sd for one layer index. */

@@ -25,6 +25,9 @@ uv run infoplane sweep --train-sizes 205,614,1843,3482 --outdir data/trainsize
 
 # Figure 5: one ensemble per depth, the authors' six architectures (see ARCH_DEFAULT)
 uv run infoplane arch --outdir data/arch
+
+# refresh the committed snapshot the site is built from (data/ -> frontend/public/data/)
+uv run infoplane publish
 ```
 
 `infoplane run --help` lists every knob. Useful non-defaults:
@@ -300,13 +303,22 @@ in `diagnostics`:
 cd frontend
 npm install
 npm run dev        # http://localhost:5173
-npm run build      # static site -> frontend/dist (self-contained, ~13 MB with data)
+npm run build      # static site -> frontend/dist (self-contained, ~4.9 MB with data)
 npm run preview    # serve the built site
 ```
 
-Run the Phase 1 commands first: `frontend/public/data` is a symlink to the repo's `data/`
-directory, which is gitignored and regenerable, so a fresh clone has a dangling symlink
-until `infoplane fetch` and `infoplane run` have produced the exports.
+**Two data directories, on purpose.** `data/` is the working output of Phase 1 and is
+gitignored — it is 21 MB and entirely regenerable. `frontend/public/data/` is a *committed
+snapshot* of the subset the pages fetch, written by `uv run infoplane publish`, so a fresh
+clone builds and serves the site without running anything. It is 4.5 MB, and the
+difference is `runs`: the per-seed trajectories are 85% of the bytes and only Figure 2
+plots them, so `publish` keeps them in `infoplane.json` and empties them everywhere else.
+`quadric.json` is not published at all, since no page fetches it.
+
+The workflow is `run` / `sweep` / `arch` → `publish` → `npm run build`. `publish` is a pure
+file transform over finished exports, so it takes a second and never retrains. Everything
+in the snapshot is paid for in repository history permanently (~1.5 MB of git objects per
+refresh), which is why it carries the subset rather than the lot.
 
 | Page | What it shows |
 | --- | --- |
