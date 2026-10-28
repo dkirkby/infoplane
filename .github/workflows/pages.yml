@@ -1,0 +1,60 @@
+# Build the figure pages and publish them to GitHub Pages.
+#
+# The site is static and its data is the committed snapshot in
+# frontend/public/data, so this never runs the Python pipeline: it is
+# `npm ci && npm run build` and nothing else. Refreshing the numbers means
+# running `infoplane publish` locally and committing the snapshot, which is
+# what triggers this.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Read the repo, mint the Pages deployment token. Nothing else.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it mid-publish; queue
+# the newer one behind it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # No configure-pages step: vite's base is "./", so the bundle is
+      # already path-relative and needs no injected base URL.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

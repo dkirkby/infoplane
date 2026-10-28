@@ -9,6 +9,9 @@ of the paper's network, estimates I(X;T) and I(T;Y) for every hidden layer at lo
 epochs, and exports the trajectories as JSON. Phase 2 (`frontend/`) is a Vite + D3 site of
 four interactive figure pages that read those exports.
 
+**The site is live at <https://dkirkby.github.io/infoplane/>**, built from `main` by
+`.github/workflows/pages.yml` on every push.
+
 ## Quick start
 
 ```bash
@@ -319,6 +322,21 @@ The workflow is `run` / `sweep` / `arch` → `publish` → `npm run build`. `pub
 file transform over finished exports, so it takes a second and never retrains. Everything
 in the snapshot is paid for in repository history permanently (~1.5 MB of git objects per
 refresh), which is why it carries the subset rather than the lot.
+
+### Deployment
+
+`.github/workflows/pages.yml` publishes `frontend/dist` to GitHub Pages on every push to
+`main`, and Pages is configured in **workflow** mode, so the branch holds no built output
+and `dist` stays gitignored. The job is `npm ci && npm run build` and nothing else: it
+never installs Python, never trains, and never runs `publish`. That means **the deployed
+numbers are whatever is in the committed snapshot**, so refreshing a figure is a local
+`run`/`sweep`/`arch` → `publish` → commit, and the push is what deploys it. Re-deploying
+the current commit without changing anything is the `workflow_dispatch` trigger.
+
+No `.nojekyll` is needed — workflow mode uploads the directory as an artifact and never
+runs Jekyll, so Vite's `assets/` would survive even if it were `_assets/`. The build is
+path-relative (`base: "./"` in `vite.config.js`), which is what lets the same `dist` serve
+from the `/infoplane/` sub-path and from `npm run preview` at the root.
 
 | Page | What it shows |
 | --- | --- |

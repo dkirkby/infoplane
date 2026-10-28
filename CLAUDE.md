@@ -95,6 +95,15 @@ only in `infoplane.json` — Figure 2 is the one page that plots individual seed
 empties it in the sweeps, which is 85% of their bytes. If a page ever needs per-seed data
 from a sweep, that rule is what has to change, in `export.publish_snapshot`.
 
+**The site deploys itself from `main`.** `.github/workflows/pages.yml` runs
+`npm ci && npm run build` and uploads `frontend/dist` to GitHub Pages
+(<https://dkirkby.github.io/infoplane/>), which is configured in *workflow* mode — no
+`gh-pages` branch, no committed `dist`. The job installs no Python and runs no part of
+Phase 1, so **a push deploys the committed snapshot, not the current `data/`**: new
+numbers reach the site only via `publish` + commit. Keep the build dependency-light for
+that reason, and if a page ever needs something generated at deploy time, that is a change
+to the workflow, not something to smuggle into a `postinstall`.
+
 Rules that are load-bearing, not taste — a change here needs the same validation:
 
 - **Layer colour is an ORDINAL ramp** (one blue hue, 7 steps, monotone lightness),
